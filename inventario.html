@@ -34,7 +34,7 @@
       1) Asegúrate de tener al menos un <b>Lote</b> creado (aduana y piezas).<br/>
       2) Ingresa cada prenda con su <b>costo en quetzales</b> y elige su <b>lote</b>.<br/>
       3) El sistema calcula: compra($) + aduana/pieza = <b>costo base unitario</b>.<br/>
-      4) Cuando se venda, la utilidad se calcula en la pantalla de <b>Ventas</b> al marcar <b>Retirado/Depositado</b>.
+      4) Cuando se venda, la utilidad se calcula en <b>Ventas</b> al marcar <b>Retirado/Depositado</b>.
     </div>
   </section>
 
@@ -83,7 +83,7 @@
         <div>
           <label>Tipo de cambio (Q → $)</label>
           <input id="fx" type="number" step="0.01" placeholder="7.50"/>
-          <div class="small muted">Tip: se llena desde Config, pero lo puedes cambiar por prenda.</div>
+          <div class="small muted">Se llena desde Config, pero lo puedes cambiar por prenda.</div>
         </div>
       </div>
 
@@ -99,13 +99,13 @@
       </div>
 
       <div class="flex" style="margin-top:12px">
-        <button class="btn ok" id="btnAdd">Guardar prenda</button>
+        <button class="btn primary" id="btnAdd">Guardar prenda</button>
         <span class="small" id="preview"></span>
       </div>
 
       <hr/>
       <div class="small muted">
-        Consejo: si no asignas lote, el sistema no sabrá la aduana/pieza. Mantén el flujo: <b>Lote → Prendas → Ventas</b>.
+        Consejo: mantén el flujo: <b>Lote → Prendas → Ventas</b>. Así tus costos y utilidades salen exactos.
       </div>
     </div>
 
@@ -114,7 +114,7 @@
       <div class="small" id="tips"></div>
       <hr/>
       <div class="small muted">
-        Recomendación: usa “Tipo” consistente (ej. “Gorra” siempre igual) para que los reportes por categoría sean precisos.
+        Recomendación: usa “Tipo” consistente (ej. “Gorra” siempre igual) para reportes más precisos.
       </div>
     </div>
   </section>
@@ -195,7 +195,7 @@
       op.textContent = "No hay lotes — crea uno primero en Lotes";
       lotSelect.appendChild(op);
       lotSelect.disabled = true;
-      lotInfo.innerHTML = `<span class="pill bad">Falta lote</span> Ve a <b>Lotes</b> y crea uno para poder prorratear aduana.`;
+      lotInfo.innerHTML = `<span class="pill bad">Falta lote</span> Ve a <b>Lotes</b> y crea uno para prorratear aduana.`;
       return;
     }
 
@@ -260,7 +260,7 @@
     if(stock >= 30) t.push(`• Stock alto (${stock}). Considera promo por categoría en Reportes.`);
     if(reserved > 0) t.push(`• Tienes ${reserved} reservadas: recuerda que NO es dinero hasta Retirado.`);
 
-    tipsBox.innerHTML = t.map(x=>`• ${x.replace(/^•\s*/,"")}`).join("<br/>");
+    tipsBox.innerHTML = t.join("<br/>");
   }
 
   document.getElementById("btnAdd").addEventListener("click", ()=>{
@@ -287,8 +287,17 @@
       salePrice: 0,
       status: "En stock",
       channel: "",
-      noRetType: "Destino fijo", // cuando aplique
+      noRetType: "Destino fijo",
       mariitaCost: 0,
+
+      // ✅ NUEVO: meta de venta (cliente/destino/fecha/encomendista)
+      saleMeta: {
+        customerName: "",
+        destination: "",
+        pickupDueDate: "",
+        courier: ""
+      },
+
       dates: {
         in: dateIn.value || new Date().toISOString().slice(0,10),
         reserved: "",
@@ -302,13 +311,14 @@
     db.items.unshift(item);
     saveDB(db);
 
-    // reset a few fields
+    // reset
     type.value = "";
     sku.value = "";
     costQ.value = "";
     suggestedPrice.value = "";
     dateIn.value = new Date().toISOString().slice(0,10);
     fx.value = db.config.fx ?? 7.50;
+
     updatePreview();
     render();
   });
@@ -398,7 +408,6 @@
   window.editItem = editItem;
 
   function deleteItem(id){
-    // no preguntar mil: simple pero seguro
     if(!confirm("¿Eliminar esta prenda del inventario?")) return;
     db.items = db.items.filter(x=>x.id!==id);
     saveDB(db);
@@ -410,12 +419,8 @@
   search.addEventListener("input", renderTable);
 
   document.getElementById("btnExportItems").addEventListener("click", ()=>{
-    const blob = new Blob([JSON.stringify({items: db.items, exportedAt: new Date().toISOString()}, null, 2)], {type:"application/json"});
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "inventario_export.json";
-    a.click();
-    URL.revokeObjectURL(a.href);
+    const payload = { items: db.items, exportedAt: new Date().toISOString() };
+    exportJSON("inventario_export.json", payload);
   });
 
   function render(){
@@ -429,3 +434,4 @@
 </script>
 </body>
 </html>
+
