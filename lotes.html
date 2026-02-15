@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Lotes — Compras e Importación</title>
+  <link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="logo">📦</div>
+    <div>
+      <h1>Lotes (Compras / Importación)</h1>
+      <div class="small">Registra aduana y piezas para prorratear el costo por prenda automáticamente.</div>
+    </div>
+  </div>
+
+  <nav class="nav">
+    <a href="index.html">Inicio</a>
+    <a href="config.html">Config</a>
+    <a class="active" href="lotes.html">Lotes</a>
+    <a href="inventario.html">Inventario</a>
+    <a href="ventas.html">Ventas</a>
+    <a href="gastos.html">Gastos</a>
+    <a href="reportes.html">Reportes</a>
+  </nav>
+</header>
+
+<main>
+  <section class="card">
+    <h2>👋 Cómo usar esta pantalla</h2>
+    <div class="small">
+      1) Cada vez que compres y traigas mercancía, crea un <b>lote</b> con la cantidad total de piezas.<br/>
+      2) Ingresa lo que cobró <b>aduana</b> por ese lote.<br/>
+      3) El sistema calcula <b>aduana por pieza</b> = aduanaTotal / piezas. Luego, al crear prendas en Inventario,
+      solo eliges el lote y se calcula el costo automáticamente.
+    </div>
+  </section>
+
+  <section class="grid cols2">
+    <div class="card">
+      <h2>➕ Crear lote</h2>
+
+      <label>Fecha del lote</label>
+      <input id="date" type="date"/>
+
+      <label>Piezas en el lote</label>
+      <input id="qty" type="number" step="1" placeholder="60"/>
+
+      <label>Aduana total del lote ($)</label>
+      <input id="customsTotal" type="number" step="0.01" placeholder="80.00"/>
+
+      <label>Notas (opcional)</label>
+      <input id="notes" placeholder="Ej: Compra Guatemala, gorras y camisas"/>
+
+      <div class="flex" style="margin-top:12px">
+        <button class="btn ok" id="btnAdd">Guardar lote</button>
+        <span class="small" id="preview"></span>
+      </div>
+
+      <hr/>
+      <div class="small muted">
+        Consejo: si aduana=$80 y piezas=60 → aduana/pieza=$1.33. Ese valor se suma al costo de cada prenda del lote.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>💡 Consejos rápidos</h2>
+      <div class="small" id="tips"></div>
+      <hr/>
+      <div class="small muted">
+        Buen hábito: crea el lote primero, luego ingresa inventario. Así nunca se te queda una prenda sin costo real.
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="flex" style="justify-content:space-between">
+      <h2 style="margin:0">📋 Lotes registrados</h2>
+      <div class="flex">
+        <button class="btn" id="btnExportLots">Exportar lotes</button>
+        <button class="btn bad" id="btnClearLots">Borrar lotes (solo lotes)</button>
+      </div>
+    </div>
+
+    <div style="overflow:auto;margin-top:10px">
+      <table>
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Piezas</th>
+            <th>Aduana total</th>
+            <th>Aduana / pieza</th>
+            <th>Notas</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script src="app.js"></script>
+<script>
+  const db = loadDB();
+
+  const date = document.getElementById("date");
+  const qty = document.getElementById("qty");
+  const customsTotal = document.getElementById("customsTotal");
+  const notes = document.getElementById("notes");
+  const preview = document.getElementById("preview");
+  const tbody = document.getElementById("tbody");
+  const tipsBox = document.getElementById("tips");
+
+  // default date
+  date.value = new Date().toISOString().slice(0,10);
+
+  function customsPerPiece(){
+    const q = Math.max(1, Math.floor(Number(qty.value || 1)));
+    const c = Number(customsTotal.value || 0);
+    return c / q;
+  }
+
+  function renderPreview(){
+    preview.innerHTML = `Aduana/pieza: <b>${money(customsPerPiece())}</b>`;
+  }
+  qty.addEventListener("input", renderPreview);
+  customsTotal.addEventListener("input", renderPreview);
+  renderPreview();
+
+  function renderTips(){
+    const t = [];
+    if(db.lots.length===0){
+      t.push("• Crea tu primer lote para que el inventario tenga costos reales (incluyendo aduana).");
+    }else{
+      const last = db.lots[0];
+      const per = (Number(last.customsTotal||0) / Math.max(1, Math.floor(Number(last.qty||1))));
+      t.push(`• Último lote: <b>${new Date(last.date+"T00:00:00").toLocaleDateString("es-SV")}</b> con aduana/pieza ≈ <b>${money(per)}</b>.`);
+      t.push("• Si mezclas productos muy diferentes en un mismo lote, el prorrateo es igual para todas. Si quieres más precisión, separa lotes por tipo.");
+    }
+    tipsBox.innerHTML = t.join("<br/><br/>");
+  }
+
+  document.getElementById("btnAdd").addEventListener("click", ()=>{
+    const lot = {
+      id: uid("LOT"),
+      date: date.value || new Date().toISOString().slice(0,10),
+      qty: Math.max(1, Math.floor(Number(qty.value || 1))),
+      customsTotal: Number(customsTotal.value || 0),
+      fx: db.config.fx || 7.50,
+      notes: (notes.value || "").trim()
+    };
+
+    db.lots.unshift(lot);
+    saveDB(db);
+
+    qty.value = "";
+    customsTotal.value = "";
+    notes.value = "";
+    render();
+  });
+
+  function removeLot(id){
+    // seguridad: si hay prendas usando este lote, no se borra
+    const used = db.items.some(it => it.lotId === id);
+    if(used){
+      alert("Este lote está siendo usado por prendas en inventario. Primero cambia esas prendas o elimínalas.");
+      return;
+    }
+    if(!confirm("¿Eliminar este lote?")) return;
+    db.lots = db.lots.filter(l=>l.id!==id);
+    saveDB(db);
+    render();
+  }
+  window.removeLot = removeLot;
+
+  function renderTable(){
+    tbody.innerHTML = "";
+    if(db.lots.length===0){
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td colspan="6" class="small muted">Aún no hay lotes. Crea uno arriba.</td>`;
+      tbody.appendChild(tr);
+      return;
+    }
+
+    db.lots.forEach(l=>{
+      const per = Number(l.customsTotal||0) / Math.max(1, Math.floor(Number(l.qty||1)));
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${new Date(l.date+"T00:00:00").toLocaleDateString("es-SV")}</td>
+        <td><b>${l.qty}</b></td>
+        <td>${money(l.customsTotal)}</td>
+        <td><span class="pill info">${money(per)}</span></td>
+        <td class="small">${l.notes ? l.notes : "<span class='muted'>—</span>"}</td>
+        <td>
+          <button class="btn bad" onclick="removeLot('${l.id}')">Eliminar</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  document.getElementById("btnExportLots").addEventListener("click", ()=>{
+    const blob = new Blob([JSON.stringify({lots: db.lots, exportedAt: new Date().toISOString()}, null, 2)], {type:"application/json"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "lotes_export.json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  document.getElementById("btnClearLots").addEventListener("click", ()=>{
+    if(db.items.length>0){
+      alert("No se pueden borrar lotes si ya hay inventario. Primero vacía inventario o reasigna lotes.");
+      return;
+    }
+    if(!confirm("Esto borrará SOLO los lotes. ¿Seguro?")) return;
+    db.lots = [];
+    saveDB(db);
+    render();
+  });
+
+  function render(){
+    renderPreview();
+    renderTips();
+    renderTable();
+  }
+
+  render();
+</script>
+</body>
+</html>
