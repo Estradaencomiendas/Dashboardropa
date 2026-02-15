@@ -3,16 +3,16 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Tienda — Dashboard</title>
+  <title>Panel — Control de negocio</title>
   <link rel="stylesheet" href="styles.css"/>
 </head>
 <body>
 <header>
   <div class="brand">
-    <div class="logo">📊</div>
+    <div class="logo">🧠</div>
     <div>
-      <h1>Panel principal — Tienda Ropa & Accesorios</h1>
-      <div class="small">Ventas al contado · Retirado = venta real · Depositado = caja confirmada</div>
+      <h1>Panel (Control general)</h1>
+      <div class="small">Inversión, recuperación, stock, reservados, retirados, utilidad (bruta vs neta).</div>
     </div>
   </div>
 
@@ -29,30 +29,73 @@
 
 <main>
   <section class="card">
-    <h2>👋 Cómo usar este sistema</h2>
+    <h2>👋 Cómo usar el sistema (visión rápida)</h2>
     <div class="small">
-      1) Crea un <b>Lote</b> cuando compres en Guatemala (aduana y piezas).<br/>
-      2) Ingresa las <b>Prendas</b> asignándolas a su lote para que el costo sea exacto.<br/>
-      3) En <b>Ventas</b> mueve el estado: Reservado → (No retirado/Reenvío) → Retirado → Depositado.<br/>
-      4) Registra <b>Gastos</b> (gasolina, bolsas, etiquetas, publicidad) para ver utilidad neta real.
+      • Primero crea un <b>lote</b> (piezas, aduana total, compra total en Q).<br/>
+      • Luego crea <b>prendas</b> en Inventario vinculadas al lote (costo Q).<br/>
+      • En Ventas, mueve estados hasta <b>Retirado</b> y luego <b>Depositado</b> para cuadrar caja.<br/>
+      • En Reportes verás <b>canales</b>, <b>rotación</b>, <b>recuperación por lote</b> y recomendaciones.
     </div>
   </section>
 
-  <section class="kpis" id="kpis"></section>
-
-  <section class="grid cols2">
+  <section class="grid cols3">
     <div class="card">
-      <h2>🚦 Alertas rápidas</h2>
-      <div id="alerts" class="small"></div>
+      <h2>💰 Recuperación global (meta: recuperar inversión)</h2>
+      <div id="recoveryBox" class="small"></div>
       <hr/>
       <div class="small muted">
-        Consejo: si ves “Retirados sin depositar”, revisa con la trabajadora el depósito de miércoles o sábado.
+        Regla: cuando <b>Recuperado</b> supere <b>Inversión</b>, el sistema lo muestra en verde. Antes de eso, en rojo.
       </div>
     </div>
 
     <div class="card">
-      <h2>💡 Consejos basados en tus datos</h2>
-      <div id="tips" class="small"></div>
+      <h2>📦 Operación</h2>
+      <div id="opsBox" class="small"></div>
+      <hr/>
+      <div class="small muted">
+        “Reservado” no es dinero. “Retirado” sí cuenta como venta real.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>📌 Alertas</h2>
+      <div id="alerts" class="small"></div>
+      <hr/>
+      <div class="small muted">
+        Si ves “No retirado” alto en un canal, conviene confirmar antes de enviar.
+      </div>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:12px">
+    <h2>📊 Resumen rápido</h2>
+    <div class="kpis" id="kpis"></div>
+  </section>
+
+  <section class="grid cols2" style="margin-top:12px">
+    <div class="card">
+      <h2>✅ Accesos rápidos</h2>
+      <div class="flex">
+        <a class="btn primary" href="lotes.html">+ Crear lote</a>
+        <a class="btn primary" href="inventario.html">+ Agregar prenda</a>
+        <a class="btn primary" href="ventas.html">Gestionar ventas</a>
+        <a class="btn" href="reportes.html">Ver reportes</a>
+      </div>
+      <hr/>
+      <div class="small muted">
+        Consejo: si hoy es miércoles o sábado, revisa Ventas para marcar Depositado y cuadrar caja.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>🧾 Exportar respaldo</h2>
+      <div class="small muted">
+        Respalda tu base (LocalStorage). Si cambias de PC o limpias el navegador, puedes perderlo. Exporta a menudo.
+      </div>
+      <hr/>
+      <div class="flex">
+        <button class="btn" id="btnExportAll">Exportar TODO (JSON)</button>
+      </div>
     </div>
   </section>
 </main>
@@ -60,23 +103,104 @@
 <script src="app.js"></script>
 <script>
   const db = loadDB();
-  const k = kpis(db);
 
-  document.getElementById("kpis").innerHTML = `
-    <div class="kpi"><div class="t">Stock disponible</div><div class="v">${k.stock}</div><div class="s">Prendas “En stock”</div></div>
-    <div class="kpi"><div class="t">Reservados</div><div class="v">${k.reserved}</div><div class="s">Aún no es dinero</div></div>
-    <div class="kpi"><div class="t">No retirado</div><div class="v">${k.noRet}</div><div class="s">Costo interno posible</div></div>
-    <div class="kpi"><div class="t">Utilidad (bruta)</div><div class="v">${money(k.profit)}</div><div class="s">Solo Retirado/Depositado</div></div>
+  function kpisCompute(db){
+    const stock = db.items.filter(x=>x.status==="En stock").length;
+    const reserved = db.items.filter(x=>x.status==="Reservado/Vendido").length;
+    const noRet = db.items.filter(x=>x.status==="No retirado").length;
+    const reenvio = db.items.filter(x=>x.status==="Reenvío").length;
+    const retirado = db.items.filter(x=>x.status==="Retirado").length;
+    const depositado = db.items.filter(x=>x.status==="Depositado").length;
+
+    const sales = db.items.filter(x=>isSaleReal(x.status));
+    const revenue = sales.reduce((a,x)=>a+num(x.salePrice),0);
+    const profitBruta = sales.reduce((a,x)=>a+calcProfit(db,x).profit,0);
+
+    const expenses = db.expenses.reduce((a,x)=>a+num(x.amount),0);
+    const profitNeta = profitBruta - expenses;
+
+    return { stock, reserved, noRet, reenvio, retirado, depositado, revenue, profitBruta, expenses, profitNeta };
+  }
+
+  // --- Recuperación global ---
+  const inv = globalInvestmentUSD(db);
+  const rec = globalRecoveryUSD(db);
+  const diff = globalNetAfterInvestment(db);
+
+  const recPill = diff >= 0 ? "ok" : "bad";
+  const recLabel = diff >= 0 ? `✅ Ya recuperaste +${money(diff)}` : `⚠️ Faltan ${money(Math.abs(diff))} por recuperar`;
+
+  document.getElementById("recoveryBox").innerHTML = `
+    <div class="flex">
+      <span class="pill info">Inversión</span> <b>${money(inv)}</b>
+    </div>
+    <div class="flex" style="margin-top:10px">
+      <span class="pill info">Recuperado</span> <b>${money(rec)}</b>
+    </div>
+    <div class="flex" style="margin-top:10px">
+      <span class="pill ${recPill}">Balance</span> <b>${recLabel}</b>
+    </div>
   `;
 
-  const alerts = [];
-  if(k.noRet>0) alerts.push(`<span class="pill bad">No retirado</span> Tienes <b>${k.noRet}</b> prendas no retiradas.`);
-  if(k.reserved>0) alerts.push(`<span class="pill warn">Pendientes</span> Hay <b>${k.reserved}</b> reservadas.`);
-  if(k.stock>=30) alerts.push(`<span class="pill info">Stock alto</span> Considera promo por categoría.`);
-  if(alerts.length===0) alerts.push(`<span class="pill ok">OK</span> Sin alertas críticas hoy.`);
+  // --- Operación ---
+  const k = kpisCompute(db);
+  document.getElementById("opsBox").innerHTML = `
+    • Stock: <b>${k.stock}</b><br/>
+    • Reservados: <b>${k.reserved}</b><br/>
+    • Reenvíos: <b>${k.reenvio}</b><br/>
+    • No retirado: <b>${k.noRet}</b><br/>
+    • Retirados (sin depositar): <b>${k.retirado}</b><br/>
+    • Depositados: <b>${k.depositado}</b>
+  `;
 
-  document.getElementById("alerts").innerHTML = alerts.join("<br/><br/>");
-  document.getElementById("tips").innerHTML = tips(db).map(x=>`• ${x}`).join("<br/>");
+  // --- Alertas ---
+  const alerts = [];
+  if(k.noRet >= 5) alerts.push(`<span class="pill bad">No retirado alto</span> ${k.noRet} casos: estás perdiendo costo interno.`);
+  if(k.reserved >= 10) alerts.push(`<span class="pill warn">Reservados altos</span> ${k.reserved} casos: dale seguimiento para que no se enfríen.`);
+  if(k.stock >= 40) alerts.push(`<span class="pill info">Stock alto</span> ${k.stock} en stock: probablemente conviene promoción.`);
+  if(k.retirado >= 8) alerts.push(`<span class="pill warn">Pendiente depósito</span> ${k.retirado} retirados sin depositar.`);
+
+  document.getElementById("alerts").innerHTML = alerts.length
+    ? alerts.join("<br/><br/>")
+    : `<span class="pill ok">OK</span> Sin alertas críticas detectadas.`;
+
+  // --- KPIs Cards ---
+  const kpisEl = document.getElementById("kpis");
+  kpisEl.innerHTML = `
+    <div class="kpi">
+      <div class="t">Ventas reales (Retirado+)</div>
+      <div class="v">${money(k.revenue)}</div>
+      <div class="s">Total de ventas reales acumuladas</div>
+    </div>
+    <div class="kpi">
+      <div class="t">Utilidad bruta</div>
+      <div class="v">${money(k.profitBruta)}</div>
+      <div class="s">Venta − (compra+aduana+mariita+noRet)</div>
+    </div>
+    <div class="kpi">
+      <div class="t">Gastos generales</div>
+      <div class="v">${money(k.expenses)}</div>
+      <div class="s">Gasolina, bolsas, etiquetas, publicidad…</div>
+    </div>
+    <div class="kpi">
+      <div class="t">Utilidad neta</div>
+      <div class="v">${money(k.profitNeta)}</div>
+      <div class="s">Utilidad bruta − gastos</div>
+    </div>
+  `;
+
+  // --- Export completo ---
+  document.getElementById("btnExportAll").addEventListener("click", ()=>{
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      config: db.config,
+      lots: db.lots,
+      items: db.items,
+      expenses: db.expenses
+    };
+    exportJSON("tienda_export_completo.json", payload);
+  });
 </script>
 </body>
 </html>
+
