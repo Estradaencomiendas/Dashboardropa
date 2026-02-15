@@ -31,7 +31,7 @@
   <section class="card">
     <h2>👋 Cómo usar esta pantalla (paso a paso)</h2>
     <div class="small">
-      1) Cuando alguien aparta: marca <b>Reservado/Vendido</b> y registra <b>cliente + destino + fecha límite + encomendista</b> y el <b>canal</b>.<br/>
+      1) Cuando alguien aparta: marca <b>Marcar vendido</b> y llena la <b>ficha</b> (cliente + destino + fecha límite + encomendista + canal + monto).<br/>
       2) Si NO pasa a retirar: marca <b>No retirado</b> y define <b>Destino fijo</b> ($1) o <b>Personalizado</b> ($3).<br/>
       3) Si pide segunda vuelta: marca <b>Reenvío</b>.<br/>
       4) Cuando ya retiró: marca <b>Retirado</b> (aquí cuenta como venta real).<br/>
@@ -121,6 +121,78 @@
     </div>
   </section>
 </main>
+
+<!-- ========= MODAL: Reservar/Vender con ficha completa ========= -->
+<div id="saleModal" class="modal" style="display:none;">
+  <div class="modal-card">
+    <div class="flex" style="justify-content:space-between;align-items:center;">
+      <h2 style="margin:0;">📦 Datos del envío (obligatorio)</h2>
+      <button class="btn" id="saleCloseBtn">Cerrar</button>
+    </div>
+    <div class="small muted" style="margin-top:6px">
+      Esto crea la “ficha” para seguimiento. Sin estos datos no se guarda el estado Vendido.
+    </div>
+    <hr/>
+
+    <div class="grid cols2">
+      <div>
+        <label>Cliente</label>
+        <input id="m_customer" placeholder="Nombre completo"/>
+      </div>
+      <div>
+        <label>Destino</label>
+        <input id="m_destination" placeholder="Ej: Ahuachapán, Santa Ana..."/>
+      </div>
+    </div>
+
+    <div class="grid cols2" style="margin-top:12px">
+      <div>
+        <label>Fecha límite de retiro</label>
+        <input id="m_due" type="date"/>
+      </div>
+      <div>
+        <label>Encomendista</label>
+        <input id="m_courier" placeholder="Ej: Metrogalerías"/>
+      </div>
+    </div>
+
+    <div class="grid cols2" style="margin-top:12px">
+      <div>
+        <label>Canal</label>
+        <select id="m_channel">
+          <option>Facebook</option>
+          <option>Instagram</option>
+          <option>TikTok</option>
+        </select>
+      </div>
+      <div>
+        <label>Monto del paquete / venta ($)</label>
+        <input id="m_amount" type="number" step="0.01" placeholder="0.00"/>
+      </div>
+    </div>
+
+    <div class="flex" style="margin-top:14px;justify-content:flex-end;">
+      <button class="btn primary" id="saleSaveBtn">Guardar vendido</button>
+    </div>
+
+    <div class="small muted" style="margin-top:10px">
+      Tip: La fecha límite te permite ver “vencidos” y avisar a tiempo.
+    </div>
+  </div>
+</div>
+
+<style>
+  /* Modal minimal (sin tocar styles.css) */
+  .modal{
+    position:fixed; inset:0; background:rgba(0,0,0,.45);
+    display:flex; align-items:center; justify-content:center; padding:16px;
+    z-index:9999;
+  }
+  .modal-card{
+    width:min(720px, 100%); background:white; border-radius:14px;
+    padding:16px; box-shadow:0 20px 60px rgba(0,0,0,.20);
+  }
+</style>
 
 <script src="app.js"></script>
 <script>
@@ -223,7 +295,7 @@
     `;
   }
 
-  // ===================== NUEVO: Pendientes de retiro =====================
+  // ===================== Pendientes de retiro =====================
   function renderPending(){
     pendingTbody.innerHTML = "";
 
@@ -263,8 +335,83 @@
         pendingTbody.appendChild(tr);
       });
   }
-  // ======================================================================
 
+  // ========= Modal state =========
+  const saleModal = document.getElementById("saleModal");
+  const saleCloseBtn = document.getElementById("saleCloseBtn");
+  const saleSaveBtn = document.getElementById("saleSaveBtn");
+
+  const m_customer = document.getElementById("m_customer");
+  const m_destination = document.getElementById("m_destination");
+  const m_due = document.getElementById("m_due");
+  const m_courier = document.getElementById("m_courier");
+  const m_channel = document.getElementById("m_channel");
+  const m_amount = document.getElementById("m_amount");
+
+  let currentReserveItemId = null;
+
+  function openSaleModal(item){
+    currentReserveItemId = item.id;
+
+    const today = new Date().toISOString().slice(0,10);
+
+    item.saleMeta = item.saleMeta || { customerName:"", destination:"", pickupDueDate:"", courier:"" };
+
+    m_customer.value = item.saleMeta.customerName || "";
+    m_destination.value = item.saleMeta.destination || "";
+    m_due.value = item.saleMeta.pickupDueDate || today;
+    m_courier.value = item.saleMeta.courier || "Metrogalerías";
+    m_channel.value = item.channel || "Facebook";
+    m_amount.value = (item.salePrice && item.salePrice > 0) ? item.salePrice : (item.suggestedPrice || "");
+
+    saleModal.style.display = "flex";
+  }
+
+  function closeSaleModal(){
+    saleModal.style.display = "none";
+    currentReserveItemId = null;
+  }
+
+  saleCloseBtn.addEventListener("click", closeSaleModal);
+  saleModal.addEventListener("click", (e)=>{ if(e.target === saleModal) closeSaleModal(); });
+
+  saleSaveBtn.addEventListener("click", ()=>{
+    const it = db.items.find(x=>x.id===currentReserveItemId);
+    if(!it) return;
+
+    const customer = (m_customer.value || "").trim();
+    const destination = (m_destination.value || "").trim();
+    const due = (m_due.value || "").trim();
+    const courier = (m_courier.value || "").trim();
+    const channel = (m_channel.value || "").trim();
+    const amount = num(m_amount.value);
+
+    if(!customer){ alert("Falta: Cliente"); return; }
+    if(!destination){ alert("Falta: Destino"); return; }
+    if(!due){ alert("Falta: Fecha límite"); return; }
+    if(!courier){ alert("Falta: Encomendista"); return; }
+    if(!(amount > 0)){ alert("Falta: Monto (debe ser mayor a 0)"); return; }
+
+    const today = new Date().toISOString().slice(0,10);
+
+    it.saleMeta = it.saleMeta || {};
+    it.saleMeta.customerName = customer;
+    it.saleMeta.destination = destination;
+    it.saleMeta.pickupDueDate = due;
+    it.saleMeta.courier = courier;
+
+    it.channel = channel;
+    it.salePrice = amount;
+
+    it.status = "Reservado/Vendido";
+    it.dates.reserved = today;
+
+    saveDB(db);
+    closeSaleModal();
+    render();
+  });
+
+  // ===============================================================
   function setStatus(id, next){
     const it = db.items.find(x=>x.id===id);
     if(!it) return;
@@ -272,48 +419,16 @@
     const today = new Date().toISOString().slice(0,10);
 
     if(next === "Reservado/Vendido"){
-      const ch = prompt("Canal de venta: Facebook / Instagram / TikTok", it.channel || "Facebook");
-      if(!ch) return;
-
-      const name = prompt("Nombre del cliente:", (it.saleMeta?.customerName || ""));
-      if(name === null) return;
-
-      const dest = prompt("Destino (ej: Ahuachapán, Santa Ana...):", (it.saleMeta?.destination || ""));
-      if(dest === null) return;
-
-      const due = prompt("Fecha límite de retiro (YYYY-MM-DD):", (it.saleMeta?.pickupDueDate || today));
-      if(due === null) return;
-
-      const courier = prompt("Encomendista:", (it.saleMeta?.courier || "Metrogalerías"));
-      if(courier === null) return;
-
-      it.channel = ch;
-
-      it.saleMeta = it.saleMeta || {};
-      it.saleMeta.customerName = (name || "").trim();
-      it.saleMeta.destination = (dest || "").trim();
-      it.saleMeta.pickupDueDate = (due || "").trim();
-      it.saleMeta.courier = (courier || "").trim();
-
-      // precio de venta estimado (opcional)
-      if(!it.salePrice || num(it.salePrice) <= 0){
-        const sp = prompt("Monto del paquete / venta ($) (puedes dejarlo en 0 y ponerlo al retirar):",
-                          String(it.suggestedPrice || it.salePrice || 0));
-        if(sp === null) return;
-        it.salePrice = num(sp);
-      }
-
-      it.dates.reserved = today;
-      it.status = next;
+      // ✅ ESTRUCTURA OBLIGATORIA antes de guardar vendido
+      openSaleModal(it);
+      return;
     }
 
     if(next === "No retirado"){
       if(!it.channel){
-        const ch = prompt("Canal de venta: Facebook / Instagram / TikTok", "Facebook");
-        if(!ch) return;
-        it.channel = ch;
+        it.channel = "Facebook";
       }
-      it.saleMeta = it.saleMeta || {};
+      it.saleMeta = it.saleMeta || { customerName:"", destination:"", pickupDueDate:"", courier:"" };
 
       const type = prompt("Tipo de NO retirado: escribe 'Destino fijo' o 'Personalizado'", it.noRetType || "Destino fijo");
       if(!type) return;
@@ -329,19 +444,21 @@
     }
 
     if(next === "Retirado"){
-      // validar canal + precio
+      // Validar que ya tenga ficha (cliente/destino/etc.)
+      it.saleMeta = it.saleMeta || { customerName:"", destination:"", pickupDueDate:"", courier:"" };
+      if(!it.saleMeta.customerName || !it.saleMeta.destination || !it.saleMeta.courier){
+        alert("Faltan datos del envío (cliente/destino/encomendista). Marca vendido y llena la ficha primero.");
+        return;
+      }
       if(!it.channel){
-        const ch = prompt("Canal de venta: Facebook / Instagram / TikTok", "Facebook");
-        if(!ch) return;
-        it.channel = ch;
+        alert("Falta canal. Marca vendido y llena la ficha primero.");
+        return;
       }
       if(!it.salePrice || num(it.salePrice) <= 0){
-        const sp = prompt("Monto del paquete / venta ($):", String(it.suggestedPrice || it.salePrice || ""));
-        if(sp === null) return;
-        it.salePrice = num(sp);
+        alert("Falta monto. Marca vendido y llena la ficha primero.");
+        return;
       }
 
-      // Mariita costo fijo (por ayuda/prenda)
       const defaultMariita = (num(db.config.mariitaFixed) || 0);
       const mc = prompt("Costo fijo Mariita ($) por esta ayuda/prenda:", String(it.mariitaCost || defaultMariita));
       if(mc === null) return;
@@ -434,6 +551,7 @@
       const p = calcProfit(db, it);
 
       const meta = it.saleMeta || {};
+
       const saleBlock = `
         <div><span class="muted">Cliente:</span> <b>${meta.customerName || "—"}</b></div>
         <div><span class="muted">Destino:</span> <b>${meta.destination || "—"}</b></div>
@@ -491,4 +609,3 @@
 </script>
 </body>
 </html>
-
