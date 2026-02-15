@@ -31,19 +31,19 @@
   <section class="card">
     <h2>👋 Cómo usar esta pantalla (paso a paso)</h2>
     <div class="small">
-      1) Cuando alguien aparta una prenda: marca <b>Reservado/Vendido</b> y elige el <b>canal</b> (FB/IG/TikTok).<br/>
-      2) Si el cliente NO pasa a retirar: marca <b>No retirado</b> y elige <b>Destino fijo</b> ($1) o <b>Personalizado</b> ($3).<br/>
-      3) Si el cliente pide segunda vuelta: marca <b>Reenvío</b>.<br/>
-      4) Cuando el cliente ya retiró: marca <b>Retirado</b>. Aquí ya cuenta como venta real.<br/>
-      5) Cuando tu trabajadora deposita (Miércoles/Sábado): marca <b>Depositado</b> para que cuadre con caja.
+      1) Cuando alguien aparta: marca <b>Reservado/Vendido</b> y registra <b>cliente + destino + fecha límite + encomendista</b> y el <b>canal</b>.<br/>
+      2) Si NO pasa a retirar: marca <b>No retirado</b> y define <b>Destino fijo</b> ($1) o <b>Personalizado</b> ($3).<br/>
+      3) Si pide segunda vuelta: marca <b>Reenvío</b>.<br/>
+      4) Cuando ya retiró: marca <b>Retirado</b> (aquí cuenta como venta real).<br/>
+      5) Cuando tu trabajadora deposita: marca <b>Depositado</b> y pon fecha. Así caja cuadra.
     </div>
   </section>
 
   <section class="grid cols2">
     <div class="card">
-      <h2>📌 Conciliación rápida (lo que debe cuadrar)</h2>
+      <h2>📌 Conciliación rápida (debe cuadrar)</h2>
       <div class="small muted">
-        • <b>Retirados sin depositar</b> = dinero “por depositar” (pendiente).<br/>
+        • <b>Retirados sin depositar</b> = dinero por depositar (pendiente).<br/>
         • <b>Depositados</b> = caja confirmada.
       </div>
       <hr/>
@@ -55,8 +55,32 @@
       <div class="small" id="tips"></div>
       <hr/>
       <div class="small muted">
-        Tip operativo: si un canal tiene mucho “No retirado”, considera confirmar por mensaje antes de enviar o filtrar clientes.
+        Tip: si un canal tiene mucho “No retirado”, filtra clientes o confirma antes de enviar.
       </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>📌 Pendientes de retiro (para avisar)</h2>
+    <div class="small muted">
+      Lista de reservas/reenvíos que todavía no están “Retirado”. Úsala para recordar antes de la fecha límite.
+    </div>
+    <hr/>
+    <div style="overflow:auto">
+      <table>
+        <thead>
+          <tr>
+            <th>Cliente</th>
+            <th>Destino</th>
+            <th>Monto</th>
+            <th>Encomendista</th>
+            <th>Retirar antes</th>
+            <th>Canal</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody id="pendingTbody"></tbody>
+      </table>
     </div>
   </section>
 
@@ -86,8 +110,8 @@
         <thead>
           <tr>
             <th>Prenda</th>
-            <th>Canal / Venta</th>
-            <th>Costos</th>
+            <th>Cliente / Envío</th>
+            <th>Costos & Utilidad</th>
             <th>Estado</th>
             <th>Acciones</th>
           </tr>
@@ -103,6 +127,8 @@
   const db = loadDB();
 
   const tbody = document.getElementById("tbody");
+  const pendingTbody = document.getElementById("pendingTbody");
+
   const filterStatus = document.getElementById("filterStatus");
   const filterChannel = document.getElementById("filterChannel");
   const search = document.getElementById("search");
@@ -159,16 +185,15 @@
     const retirados = db.items.filter(x=>x.status==="Retirado").length;
 
     if(reserved>0) t.push(`• Tienes <b>${reserved}</b> reservados: no cuentan como dinero.`);
-    if(noRet>0) t.push(`• Hay <b>${noRet}</b> “No retirado”: se aplicará costo interno ($1 o $3).`);
+    if(noRet>0) t.push(`• Hay <b>${noRet}</b> “No retirado”: aplica costo interno ($1 o $3).`);
     if(retirados>0) t.push(`• Hay <b>${retirados}</b> retirados sin depositar: revisa miércoles/sábado.`);
 
-    // canal no retirado
     const noRetByCh = {};
     db.items.filter(x=>x.status==="No retirado" && x.channel).forEach(x=>{
       noRetByCh[x.channel] = (noRetByCh[x.channel]||0)+1;
     });
     const worst = Object.entries(noRetByCh).sort((a,b)=>b[1]-a[1])[0];
-    if(worst) t.push(`• Canal con más No retirado: <b>${worst[0]}</b> (${worst[1]}). Considera confirmación previa.`);
+    if(worst) t.push(`• Canal con más No retirado: <b>${worst[0]}</b> (${worst[1]}). Considera confirmar antes de enviar.`);
 
     if(t.length===0) t.push("• ✅ Todo se ve ordenado. Mantén actualizado Retirado/Depositado para que caja cuadre.");
 
@@ -182,24 +207,63 @@
     const totalRet = retirados.reduce((a,x)=>a+num(x.salePrice),0);
     const totalDep = depositados.reduce((a,x)=>a+num(x.salePrice),0);
 
-    const pend = retirados.length;
-    const dep = depositados.length;
-
     reconBox.innerHTML = `
       <div class="flex">
         <span class="pill warn">Retirados sin depositar</span>
-        <b>${pend}</b> prendas · total ≈ <b>${money(totalRet)}</b>
+        <b>${retirados.length}</b> prendas · total ≈ <b>${money(totalRet)}</b>
       </div>
       <div class="flex" style="margin-top:10px">
         <span class="pill ok">Depositados</span>
-        <b>${dep}</b> prendas · total ≈ <b>${money(totalDep)}</b>
+        <b>${depositados.length}</b> prendas · total ≈ <b>${money(totalDep)}</b>
       </div>
       <hr/>
       <div class="small muted">
-        Consejo: marca “Depositado” solo cuando tu trabajadora ya depositó. Así se mantiene una conciliación real.
+        Marca “Depositado” solo cuando ya depositaron. Así conciliación = realidad.
       </div>
     `;
   }
+
+  // ===================== NUEVO: Pendientes de retiro =====================
+  function renderPending(){
+    pendingTbody.innerHTML = "";
+
+    const pending = db.items.filter(it =>
+      it.status === "Reservado/Vendido" || it.status === "Reenvío"
+    );
+
+    if(pending.length === 0){
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td colspan="7" class="small muted">No hay pendientes de retiro.</td>`;
+      pendingTbody.appendChild(tr);
+      return;
+    }
+
+    const today = new Date().toISOString().slice(0,10);
+
+    pending
+      .sort((a,b)=>{
+        const da = (a.saleMeta?.pickupDueDate || "9999-12-31");
+        const dbb = (b.saleMeta?.pickupDueDate || "9999-12-31");
+        return da.localeCompare(dbb);
+      })
+      .forEach(it=>{
+        const due = it.saleMeta?.pickupDueDate || "";
+        const isOver = due && due < today;
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><b>${(it.saleMeta?.customerName || "—")}</b><div class="small muted">${it.type}</div></td>
+          <td>${(it.saleMeta?.destination || "—")}</td>
+          <td><b>${it.salePrice ? money(it.salePrice) : "—"}</b></td>
+          <td>${(it.saleMeta?.courier || "—")}</td>
+          <td>${due ? `<span class="pill ${isOver ? "bad" : "warn"}">${due}</span>` : "—"}</td>
+          <td>${it.channel ? `<span class="pill info">${it.channel}</span>` : "—"}</td>
+          <td>${pillForStatus(it.status)}</td>
+        `;
+        pendingTbody.appendChild(tr);
+      });
+  }
+  // ======================================================================
 
   function setStatus(id, next){
     const it = db.items.find(x=>x.id===id);
@@ -207,24 +271,53 @@
 
     const today = new Date().toISOString().slice(0,10);
 
-    // ---- transitions with required data ----
     if(next === "Reservado/Vendido"){
       const ch = prompt("Canal de venta: Facebook / Instagram / TikTok", it.channel || "Facebook");
       if(!ch) return;
+
+      const name = prompt("Nombre del cliente:", (it.saleMeta?.customerName || ""));
+      if(name === null) return;
+
+      const dest = prompt("Destino (ej: Ahuachapán, Santa Ana...):", (it.saleMeta?.destination || ""));
+      if(dest === null) return;
+
+      const due = prompt("Fecha límite de retiro (YYYY-MM-DD):", (it.saleMeta?.pickupDueDate || today));
+      if(due === null) return;
+
+      const courier = prompt("Encomendista:", (it.saleMeta?.courier || "Metrogalerías"));
+      if(courier === null) return;
+
       it.channel = ch;
+
+      it.saleMeta = it.saleMeta || {};
+      it.saleMeta.customerName = (name || "").trim();
+      it.saleMeta.destination = (dest || "").trim();
+      it.saleMeta.pickupDueDate = (due || "").trim();
+      it.saleMeta.courier = (courier || "").trim();
+
+      // precio de venta estimado (opcional)
+      if(!it.salePrice || num(it.salePrice) <= 0){
+        const sp = prompt("Monto del paquete / venta ($) (puedes dejarlo en 0 y ponerlo al retirar):",
+                          String(it.suggestedPrice || it.salePrice || 0));
+        if(sp === null) return;
+        it.salePrice = num(sp);
+      }
+
       it.dates.reserved = today;
       it.status = next;
     }
 
     if(next === "No retirado"){
-      // require channel to know where it came from
       if(!it.channel){
-        const ch = prompt("Canal de venta (para medir demanda): Facebook / Instagram / TikTok", "Facebook");
+        const ch = prompt("Canal de venta: Facebook / Instagram / TikTok", "Facebook");
         if(!ch) return;
         it.channel = ch;
       }
+      it.saleMeta = it.saleMeta || {};
+
       const type = prompt("Tipo de NO retirado: escribe 'Destino fijo' o 'Personalizado'", it.noRetType || "Destino fijo");
       if(!type) return;
+
       it.noRetType = (type.toLowerCase().includes("pers")) ? "Personalizado" : "Destino fijo";
       it.dates.noRetirado = today;
       it.status = next;
@@ -236,19 +329,19 @@
     }
 
     if(next === "Retirado"){
-      // ensure channel and price
+      // validar canal + precio
       if(!it.channel){
         const ch = prompt("Canal de venta: Facebook / Instagram / TikTok", "Facebook");
         if(!ch) return;
         it.channel = ch;
       }
       if(!it.salePrice || num(it.salePrice) <= 0){
-        const sp = prompt("Precio de venta ($):", String(it.suggestedPrice || it.salePrice || ""));
+        const sp = prompt("Monto del paquete / venta ($):", String(it.suggestedPrice || it.salePrice || ""));
         if(sp === null) return;
         it.salePrice = num(sp);
       }
 
-      // Mariita cost fixed
+      // Mariita costo fijo (por ayuda/prenda)
       const defaultMariita = (num(db.config.mariitaFixed) || 0);
       const mc = prompt("Costo fijo Mariita ($) por esta ayuda/prenda:", String(it.mariitaCost || defaultMariita));
       if(mc === null) return;
@@ -259,7 +352,6 @@
     }
 
     if(next === "Depositado"){
-      // must have been retirado first (enforcement)
       if(it.status !== "Retirado" && it.status !== "Depositado"){
         alert("Para marcar Depositado, primero marca Retirado.");
         return;
@@ -271,14 +363,14 @@
     }
 
     if(next === "En stock"){
-      // reset sale-related fields only if user agrees
-      const ok = confirm("¿Volver a stock? Esto limpiará canal/precio/fechas de venta.");
+      const ok = confirm("¿Volver a stock? Esto limpia datos de venta (cliente/canal/precio/fechas).");
       if(!ok) return;
       it.status = "En stock";
       it.channel = "";
       it.salePrice = 0;
       it.noRetType = "Destino fijo";
       it.mariitaCost = 0;
+      it.saleMeta = { customerName:"", destination:"", pickupDueDate:"", courier:"" };
       it.dates.reserved = "";
       it.dates.noRetirado = "";
       it.dates.reenvio = "";
@@ -290,57 +382,6 @@
     render();
   }
   window.setStatus = setStatus;
-
-  function renderTable(){
-    tbody.innerHTML = "";
-    const list = filteredItems();
-
-    if(list.length===0){
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td colspan="5" class="small muted">No hay prendas con esos filtros.</td>`;
-      tbody.appendChild(tr);
-      return;
-    }
-
-    list.forEach(it=>{
-      const costs = calcItemCosts(db, it);
-      const p = calcProfit(db, it);
-
-      const saleBlock = `
-        <div><span class="muted">Canal:</span> <b>${it.channel || "—"}</b></div>
-        <div><span class="muted">Precio:</span> <b>${it.salePrice ? money(it.salePrice) : "—"}</b></div>
-        <div class="small muted">
-          Vend: ${fmtDate(it.dates.reserved)} · Ret: ${fmtDate(it.dates.retirado)} · Dep: ${fmtDate(it.dates.depositado)}
-        </div>
-      `;
-
-      const costBlock = `
-        <div><span class="muted">Costo base:</span> <b>${money(costs.base)}</b> <span class="muted">(incl. aduana)</span></div>
-        <div><span class="muted">Mariita:</span> <b>${money(p.mariita)}</b></div>
-        <div><span class="muted">No retirado:</span> <b>${money(p.noRetPenalty)}</b> <span class="muted">${it.status==="No retirado" ? "(" + (it.noRetType||"Destino fijo") + ")" : ""}</span></div>
-        <div><span class="muted">Costo total:</span> <b>${money(p.totalCost)}</b></div>
-        <div><span class="muted">Utilidad:</span> <b>${isSaleReal(it.status) ? money(p.profit) : "—"}</b>
-          <span class="muted">${isSaleReal(it.status) ? "" : "(se confirma al Retirar)"}</span>
-        </div>
-      `;
-
-      const actions = buildActions(it);
-
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>
-          <div><b>${it.type}</b> <span class="muted">(${it.gender}, ${it.condition})</span></div>
-          <div class="small muted">${it.sku ? it.sku : ""}</div>
-          <div class="small muted">Ingreso: ${fmtDate(it.dates.in)}</div>
-        </td>
-        <td class="small">${saleBlock}</td>
-        <td class="small">${costBlock}</td>
-        <td>${pillForStatus(it.status)}</td>
-        <td>${actions}</td>
-      `;
-      tbody.appendChild(tr);
-    });
-  }
 
   function buildActions(it){
     const btn = (label, cls, next) => `<button class="btn ${cls}" onclick="setStatus('${it.id}','${next}')">${label}</button>`;
@@ -369,16 +410,70 @@
       );
     }
     if(it.status==="Retirado"){
-      return wrap(
-        btn("Depositado", "ok", "Depositado")
-      );
+      return wrap(btn("Depositado", "ok", "Depositado"));
     }
     if(it.status==="Depositado"){
-      return wrap(
-        btn("Volver a Retirado", "warn", "Retirado")
-      );
+      return wrap(btn("Volver a Retirado", "warn", "Retirado"));
     }
     return wrap(btn("Volver stock", "info", "En stock"));
+  }
+
+  function renderTable(){
+    tbody.innerHTML = "";
+    const list = filteredItems();
+
+    if(list.length===0){
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td colspan="5" class="small muted">No hay prendas con esos filtros.</td>`;
+      tbody.appendChild(tr);
+      return;
+    }
+
+    list.forEach(it=>{
+      const costs = calcItemCosts(db, it);
+      const p = calcProfit(db, it);
+
+      const meta = it.saleMeta || {};
+      const saleBlock = `
+        <div><span class="muted">Cliente:</span> <b>${meta.customerName || "—"}</b></div>
+        <div><span class="muted">Destino:</span> <b>${meta.destination || "—"}</b></div>
+        <div><span class="muted">Encomendista:</span> <b>${meta.courier || "—"}</b></div>
+        <div><span class="muted">Retiro límite:</span> <b>${meta.pickupDueDate || "—"}</b></div>
+        <div><span class="muted">Canal:</span> <b>${it.channel || "—"}</b></div>
+        <div><span class="muted">Monto:</span> <b>${it.salePrice ? money(it.salePrice) : "—"}</b></div>
+        <div class="small muted">
+          Vend: ${fmtDate(it.dates.reserved)} · Ret: ${fmtDate(it.dates.retirado)} · Dep: ${fmtDate(it.dates.depositado)}
+        </div>
+      `;
+
+      const costBlock = `
+        <div><span class="muted">Costo base:</span> <b>${money(costs.base)}</b> <span class="muted">(incl. aduana)</span></div>
+        <div><span class="muted">Mariita:</span> <b>${money(p.mariita)}</b></div>
+        <div><span class="muted">No retirado:</span> <b>${money(p.noRetPenalty)}</b>
+          <span class="muted">${it.status==="No retirado" ? "(" + (it.noRetType||"Destino fijo") + ")" : ""}</span>
+        </div>
+        <div><span class="muted">Costo total:</span> <b>${money(p.totalCost)}</b></div>
+        <div><span class="muted">Utilidad:</span> <b>${isSaleReal(it.status) ? money(p.profit) : "—"}</b>
+          <span class="muted">${isSaleReal(it.status) ? "" : "(se confirma al Retirar)"}</span>
+        </div>
+      `;
+
+      const actions = buildActions(it);
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>
+          <div><b>${it.type}</b> <span class="muted">(${it.gender}, ${it.condition})</span></div>
+          <div class="small muted">${it.sku ? it.sku : ""}</div>
+          <div class="small muted">Ingreso: ${fmtDate(it.dates.in)}</div>
+        </td>
+        <td class="small">${saleBlock}</td>
+        <td class="small">${costBlock}</td>
+        <td>${pillForStatus(it.status)}</td>
+        <td>${actions}</td>
+      `;
+      tbody.appendChild(tr);
+    });
   }
 
   filterStatus.addEventListener("input", renderTable);
@@ -388,6 +483,7 @@
   function render(){
     renderTips();
     renderRecon();
+    renderPending();
     renderTable();
   }
 
@@ -395,3 +491,4 @@
 </script>
 </body>
 </html>
+
