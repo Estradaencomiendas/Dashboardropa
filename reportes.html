@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Reportes — Analítica del negocio</title>
+  <link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="logo">📈</div>
+    <div>
+      <h1>Reportes & Analítica</h1>
+      <div class="small">Canales, rotación, utilidad bruta vs neta, No retirado, y recomendaciones.</div>
+    </div>
+  </div>
+
+  <nav class="nav">
+    <a href="index.html">Inicio</a>
+    <a href="config.html">Config</a>
+    <a href="lotes.html">Lotes</a>
+    <a href="inventario.html">Inventario</a>
+    <a href="ventas.html">Ventas</a>
+    <a href="gastos.html">Gastos</a>
+    <a class="active" href="reportes.html">Reportes</a>
+  </nav>
+</header>
+
+<main>
+  <section class="card">
+    <h2>👋 Cómo leer estos reportes</h2>
+    <div class="small">
+      • <b>Ventas reales</b> = prendas en estado <b>Retirado</b> o <b>Depositado</b>.<br/>
+      • <b>Utilidad bruta</b> = venta − (compra+aduana+mariita+penalización no retirado).<br/>
+      • <b>Utilidad neta</b> = utilidad bruta − <b>gastos generales</b> (gasolina, bolsas, etiquetas, publicidad).<br/>
+      • El objetivo: ver qué canal vende más, cuál falla más (No retirado) y qué categorías conviene promocionar.
+    </div>
+  </section>
+
+  <section class="grid cols3">
+    <div class="card">
+      <h2>🎯 KPIs globales</h2>
+      <div id="kpis" class="small"></div>
+    </div>
+    <div class="card">
+      <h2>📣 Recomendaciones</h2>
+      <div id="reco" class="small"></div>
+    </div>
+    <div class="card">
+      <h2>🚦 Alertas</h2>
+      <div id="alerts" class="small"></div>
+    </div>
+  </section>
+
+  <section class="grid cols2" style="margin-top:12px">
+    <div class="card">
+      <h2>🗓️ Ventas y utilidad por semana (últimas 10 semanas)</h2>
+      <div class="small muted">Incluye Retirado/Depositado y resta gastos generales por semana para utilidad neta.</div>
+      <hr/>
+      <div id="weekly" class="small"></div>
+    </div>
+
+    <div class="card">
+      <h2>📲 Rendimiento por canal</h2>
+      <div class="small muted">Ventas reales y No retirado por canal (calidad del canal).</div>
+      <hr/>
+      <div id="channels" class="small"></div>
+    </div>
+  </section>
+
+  <section class="grid cols2" style="margin-top:12px">
+    <div class="card">
+      <h2>📦 Stock por categoría (Top 12)</h2>
+      <div class="small muted">Para decidir promociones por categoría.</div>
+      <hr/>
+      <div id="stock" class="small"></div>
+    </div>
+
+    <div class="card">
+      <h2>⏱️ Rotación (días promedio en venderse)</h2>
+      <div class="small muted">Promedio días desde ingreso → retirado/depositado por categoría.</div>
+      <hr/>
+      <div id="rotation" class="small"></div>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:12px">
+    <div class="flex" style="justify-content:space-between">
+      <h2 style="margin:0">📤 Exportar</h2>
+      <div class="flex">
+        <button class="btn" id="btnExportAll">Exportar TODO (JSON)</button>
+      </div>
+    </div>
+    <div class="small muted" style="margin-top:8px">
+      Consejo: exporta periódicamente para respaldo. Más adelante lo migramos a Firebase para que no dependa del navegador.
+    </div>
+  </section>
+</main>
+
+<script src="app.js"></script>
+<script>
+  const db = loadDB();
+
+  function isoWeekKey(dateStr){
+    const d = new Date(dateStr + "T00:00:00");
+    const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const dayNum = date.getUTCDay() || 7;
+    date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(date.getUTCFullYear(),0,1));
+    const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1)/7);
+    return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2,"0")}`;
+  }
+
+  function daysBetween(aStr, bStr){
+    const a = new Date(aStr + "T00:00:00").getTime();
+    const b = new Date(bStr + "T00:00:00").getTime();
+    return Math.max(0, Math.round((b - a) / 86400000));
+  }
+
+  // ---------- KPIs ----------
+  const stockCount = db.items.filter(x=>x.status==="En stock").length;
+  const reservedCount = db.items.filter(x=>x.status==="Reservado/Vendido").length;
+  const noRetCount = db.items.filter(x=>x.status==="No retirado").length;
+
+  const sales = db.items.filter(x=>isSaleReal(x.status));
+  const revenue = sales.reduce((a,x)=>a+calcProfit(db,x).revenue,0);
+  const profitBruta = sales.reduce((a,x)=>a+calcProfit(db,x).profit,0);
+
+  const totalExpenses = db.expenses.reduce((a,x)=>a+num(x.amount),0);
+  const profitNetaApprox = profitBruta - totalExpenses;
+
+  document.getElementById("kpis").innerHTML = `
+    • Stock: <b>${stockCount}</b><br/>
+    • Reservados (no dinero): <b>${reservedCount}</b><br/>
+    • No retirado: <b>${noRetCount}</b><br/>
+    • Ventas reales (Retirado+): <b>${money(revenue)}</b><br/>
+    • Utilidad bruta (Retirado+): <b>${money(profitBruta)}</b><br/>
+    • Gastos registrados: <b>${money(totalExpenses)}</b><br/>
+    • Utilidad neta aprox: <b>${money(profitNetaApprox)}</b>
+  `;
+
+  // ---------- Weekly ----------
+  const weekMap = new Map(); // week -> {rev, bruta, exp, net, count}
+  sales.forEach(it=>{
+    const d = it.dates.depositado || it.dates.retirado;
+    if(!d) return;
+    const wk = isoWeekKey(d);
+    if(!weekMap.has(wk)) weekMap.set(wk, {rev:0, bruta:0, exp:0, net:0, count:0});
+    const o = weekMap.get(wk);
+    const p = calcProfit(db, it);
+    o.rev += p.revenue;
+    o.bruta += p.profit;
+    o.count += 1;
+  });
+  db.expenses.forEach(ex=>{
+    const wk = isoWeekKey(ex.date);
+    if(!weekMap.has(wk)) weekMap.set(wk, {rev:0, bruta:0, exp:0, net:0, count:0});
+    weekMap.get(wk).exp += num(ex.amount);
+  });
+  for(const [wk,o] of weekMap.entries()){
+    o.net = o.bruta - o.exp;
+  }
+
+  const weeks = Array.from(weekMap.entries()).sort((a,b)=> a[0] < b[0] ? 1 : -1).slice(0,10);
+  document.getElementById("weekly").innerHTML = weeks.length
+    ? weeks.map(([wk,o])=>{
+        const badge = o.net >= 0 ? "ok" : "bad";
+        return `
+          <div style="margin-bottom:10px">
+            <span class="pill ${badge}">${wk}</span>
+            <div class="small" style="margin-top:6px">
+              • Ventas: <b>${money(o.rev)}</b> · #items: <b>${o.count}</b><br/>
+              • Utilidad bruta: <b>${money(o.bruta)}</b><br/>
+              • Gastos: <b>${money(o.exp)}</b><br/>
+              • <b>Utilidad neta:</b> <b>${money(o.net)}</b>
+            </div>
+          </div>
+        `;
+      }).join("")
+    : `<span class="muted">Aún no hay ventas reales ni gastos suficientes para reportes semanales.</span>`;
+
+  // ---------- Channels ----------
+  const chMap = new Map(); // ch -> {soldCount, rev, profit, noRet}
+  const ensureCh = (ch)=>{
+    if(!chMap.has(ch)) chMap.set(ch, {soldCount:0, rev:0, profit:0, noRet:0});
+    return chMap.get(ch);
+  };
+
+  db.items.forEach(it=>{
+    const ch = it.channel || "—";
+    if(it.status==="No retirado"){
+      ensureCh(ch).noRet += 1;
+    }
+    if(isSaleReal(it.status)){
+      const o = ensureCh(ch);
+      const p = calcProfit(db, it);
+      o.soldCount += 1;
+      o.rev += p.revenue;
+      o.profit += p.profit;
+    }
+  });
+
+  const chRows = Array.from(chMap.entries()).sort((a,b)=> b[1].rev - a[1].rev);
+  document.getElementById("channels").innerHTML = chRows.length
+    ? chRows.map(([ch,o])=>{
+        const quality = (o.soldCount + o.noRet) > 0 ? (o.noRet / (o.soldCount + o.noRet)) : 0;
+        const badge = quality <= 0.15 ? "ok" : (quality <= 0.30 ? "warn" : "bad");
+        return `
+          <div style="margin-bottom:10px">
+            <span class="pill info">${ch}</span>
+            <span class="pill ${badge}">No retirado ${(quality*100).toFixed(0)}%</span>
+            <div class="small" style="margin-top:6px">
+              • Ventas: <b>${o.soldCount}</b> · Ingreso: <b>${money(o.rev)}</b><br/>
+              • Utilidad bruta: <b>${money(o.profit)}</b><br/>
+              • No retirado: <b>${o.noRet}</b>
+            </div>
+          </div>
+        `;
+      }).join("")
+    : `<span class="muted">Aún no hay datos por canal. Marca canal cuando pongas Reservado/Retirado.</span>`;
+
+  // ---------- Stock by category ----------
+  const stock = db.items.filter(x=>x.status==="En stock");
+  const stockByType = {};
+  stock.forEach(it => stockByType[it.type] = (stockByType[it.type] || 0) + 1);
+  const stockRows = Object.entries(stockByType).sort((a,b)=>b[1]-a[1]).slice(0,12);
+
+  document.getElementById("stock").innerHTML = stockRows.length
+    ? stockRows.map(([type,count])=>{
+        const badge = count >= 15 ? "warn" : (count >= 8 ? "info" : "ok");
+        return `• <span class="pill ${badge}">${type}</span> <b>${count}</b> en stock<br/>`;
+      }).join("")
+    : `<span class="muted">No hay stock disponible.</span>`;
+
+  // ---------- Rotation ----------
+  // avg days from in -> retirado/depositado, by type
+  const rotMap = new Map(); // type -> {sumDays,count}
+  sales.forEach(it=>{
+    const end = it.dates.depositado || it.dates.retirado;
+    if(!it.dates.in || !end) return;
+    const d = daysBetween(it.dates.in, end);
+    const key = it.type || "Sin tipo";
+    if(!rotMap.has(key)) rotMap.set(key, {sum:0,count:0});
+    rotMap.get(key).sum += d;
+    rotMap.get(key).count += 1;
+  });
+  const rotRows = Array.from(rotMap.entries())
+    .map(([k,v])=> [k, v.count ? (v.sum / v.count) : 0, v.count])
+    .sort((a,b)=> a[1] - b[1])
+    .slice(0,12);
+
+  document.getElementById("rotation").innerHTML = rotRows.length
+    ? rotRows.map(([type,avg,cnt])=>{
+        const badge = avg <= 7 ? "ok" : (avg <= 14 ? "info" : "warn");
+        return `• <span class="pill ${badge}">${type}</span> <b>${avg.toFixed(1)}</b> días (n=${cnt})<br/>`;
+      }).join("")
+    : `<span class="muted">Aún no hay ventas reales suficientes para calcular rotación.</span>`;
+
+  // ---------- Recommendations & Alerts ----------
+  const recommendations = [];
+
+  // Promo suggestion: top stock category
+  if(stockRows.length){
+    const [topType, topCount] = stockRows[0];
+    if(topCount >= 10){
+      recommendations.push(`📣 Mucho stock en <b>${topType}</b> (${topCount}). Sugerencia: promo (combo, descuento por transferencia, envío gratis parcial).`);
+    } else {
+      recommendations.push(`✅ Stock por categoría controlado. Cuando una categoría supere 10 piezas, sugerimos promoción.`);
+    }
+  } else {
+    recommendations.push(`📦 No hay stock disponible. Enfócate en reabastecer con lotes y registrar costos.`);
+  }
+
+  // Channel quality suggestion
+  const worstCh = chRows
+    .map(([ch,o])=>{
+      const denom = (o.soldCount + o.noRet);
+      const ratio = denom ? (o.noRet/denom) : 0;
+      return {ch, ratio, sold:o.soldCount, noRet:o.noRet};
+    })
+    .filter(x=>x.ch!=="—")
+    .sort((a,b)=>b.ratio-a.ratio)[0];
+
+  if(worstCh && worstCh.noRet >= 2){
+    recommendations.push(`⚠️ Canal con peor retiro: <b>${worstCh.ch}</b> (No retirado ${(worstCh.ratio*100).toFixed(0)}%). Sugerencia: confirmar antes de enviar o filtrar.`);
+  } else {
+    recommendations.push(`📲 No hay evidencia fuerte de un canal “malo” todavía. Sigue registrando canal en cada venta.`);
+  }
+
+  // Expense insight
+  const ads = db.expenses.filter(x=>x.category==="Publicidad").reduce((a,x)=>a+num(x.amount),0);
+  if(ads > 0){
+    recommendations.push(`📢 Publicidad registrada: <b>${money(ads)}</b>. Revisa semanas con más ads vs semanas con más ventas para medir retorno.`);
+  } else {
+    recommendations.push(`📢 Aún no registras publicidad. Si inviertes en ads, regístralo para medir retorno real.`);
+  }
+
+  document.getElementById("reco").innerHTML = recommendations.map(x=>`• ${x}`).join("<br/><br/>");
+
+  const alerts = [];
+  if(reservedCount >= 10) alerts.push(`<span class="pill warn">Reservados altos</span> ${reservedCount} reservados: ojo con seguimiento para que no se enfríen.`);
+  if(noRetCount >= 5) alerts.push(`<span class="pill bad">No retirado alto</span> ${noRetCount} no retirados: estás perdiendo costos internos.`);
+  if(stockCount >= 40) alerts.push(`<span class="pill info">Stock muy alto</span> ${stockCount} en stock: probable necesidad de promo.`);
+  if(alerts.length===0) alerts.push(`<span class="pill ok">OK</span> Sin alertas críticas detectadas.`);
+
+  document.getElementById("alerts").innerHTML = alerts.join("<br/><br/>");
+
+  // ---------- Export all ----------
+  document.getElementById("btnExportAll").addEventListener("click", ()=>{
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      config: db.config,
+      lots: db.lots,
+      items: db.items,
+      expenses: db.expenses
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {type:"application/json"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "tienda_export_completo.json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+</script>
+</body>
+</html>
