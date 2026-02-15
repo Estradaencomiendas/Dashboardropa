@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Gastos — Radiografía del negocio</title>
+  <link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="logo">🧯</div>
+    <div>
+      <h1>Gastos generales (Radiografía)</h1>
+      <div class="small">Gasolina · Bolsas · Etiquetas · Publicidad · Otros — para utilidad neta real.</div>
+    </div>
+  </div>
+
+  <nav class="nav">
+    <a href="index.html">Inicio</a>
+    <a href="config.html">Config</a>
+    <a href="lotes.html">Lotes</a>
+    <a href="inventario.html">Inventario</a>
+    <a href="ventas.html">Ventas</a>
+    <a class="active" href="gastos.html">Gastos</a>
+    <a href="reportes.html">Reportes</a>
+  </nav>
+</header>
+
+<main>
+  <section class="card">
+    <h2>👋 Cómo usar esta pantalla</h2>
+    <div class="small">
+      • Registra aquí todos los costos que no pertenecen a una prenda específica: <b>gasolina</b>, <b>bolsas</b>, <b>etiquetas</b>, <b>publicidad</b>, etc.<br/>
+      • El sistema calcula <b>utilidad neta semanal</b> restando estos gastos a la utilidad de las ventas reales (Retirado/Depositado).<br/>
+      • Consejo: registra publicidad el mismo día que la pagas, así el análisis semanal queda real.
+    </div>
+  </section>
+
+  <section class="grid cols2">
+    <div class="card">
+      <h2>➕ Agregar gasto</h2>
+
+      <label>Fecha</label>
+      <input id="date" type="date"/>
+
+      <label>Categoría</label>
+      <select id="category">
+        <option>Gasolina</option>
+        <option>Bolsas</option>
+        <option>Etiquetas</option>
+        <option>Publicidad</option>
+        <option>Otros</option>
+      </select>
+
+      <label>Monto ($)</label>
+      <input id="amount" type="number" step="0.01" placeholder="0.00"/>
+
+      <label>Nota (opcional)</label>
+      <input id="note" placeholder="Ej: Facebook Ads, bolsas jumbo, gasolina para entrega..."/>
+
+      <div class="flex" style="margin-top:12px">
+        <button class="btn ok" id="btnAdd">Guardar gasto</button>
+        <span class="small" id="preview"></span>
+      </div>
+
+      <hr/>
+      <div class="small muted">
+        Tip: si quieres “ver si la publicidad valió la pena”, registra publicidad y revisa el reporte semanal neto.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>📈 Resumen semanal (últimas 8 semanas)</h2>
+      <div class="small muted">
+        • Ventas reales = Retirado + Depositado.<br/>
+        • Utilidad bruta = ventas − costos variables (compra+aduana+mariita+no retirado).<br/>
+        • Utilidad neta = utilidad bruta − gastos de la semana.
+      </div>
+      <hr/>
+      <div class="small" id="weekly"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="flex" style="justify-content:space-between">
+      <h2 style="margin:0">📋 Lista de gastos</h2>
+      <div class="flex">
+        <select id="filterCategory">
+          <option value="">Todas las categorías</option>
+          <option>Gasolina</option>
+          <option>Bolsas</option>
+          <option>Etiquetas</option>
+          <option>Publicidad</option>
+          <option>Otros</option>
+        </select>
+        <input id="search" placeholder="Buscar nota..." style="width:220px"/>
+        <button class="btn" id="btnExport">Exportar gastos</button>
+      </div>
+    </div>
+
+    <div class="small muted" style="margin-top:6px">
+      Consejo: si registras gastos “en tiempo real”, la utilidad neta semanal será una radiografía fiel del negocio.
+    </div>
+
+    <div style="overflow:auto;margin-top:10px">
+      <table>
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Categoría</th>
+            <th>Monto</th>
+            <th>Nota</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script src="app.js"></script>
+<script>
+  const db = loadDB();
+
+  const date = document.getElementById("date");
+  const category = document.getElementById("category");
+  const amount = document.getElementById("amount");
+  const note = document.getElementById("note");
+  const preview = document.getElementById("preview");
+
+  const weeklyBox = document.getElementById("weekly");
+  const tbody = document.getElementById("tbody");
+
+  const filterCategory = document.getElementById("filterCategory");
+  const search = document.getElementById("search");
+
+  // default date
+  date.value = new Date().toISOString().slice(0,10);
+
+  function isoWeekKey(dateStr){
+    const d = new Date(dateStr + "T00:00:00");
+    const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const dayNum = date.getUTCDay() || 7;
+    date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(date.getUTCFullYear(),0,1));
+    const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1)/7);
+    return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2,"0")}`;
+  }
+
+  function fmtDate(d){
+    if(!d) return "—";
+    return new Date(d + "T00:00:00").toLocaleDateString("es-SV");
+  }
+
+  function renderPreview(){
+    preview.innerHTML = `Total: <b>${money(amount.value)}</b>`;
+  }
+  amount.addEventListener("input", renderPreview);
+  renderPreview();
+
+  document.getElementById("btnAdd").addEventListener("click", ()=>{
+    const a = num(amount.value);
+    if(a <= 0){
+      alert("Ingresa un monto mayor a 0.");
+      return;
+    }
+    const exp = {
+      id: uid("EXP"),
+      date: date.value || new Date().toISOString().slice(0,10),
+      category: category.value,
+      amount: a,
+      note: (note.value || "").trim()
+    };
+    db.expenses.unshift(exp);
+    saveDB(db);
+
+    // reset
+    amount.value = "";
+    note.value = "";
+    renderPreview();
+    render();
+  });
+
+  function filteredExpenses(){
+    const cat = filterCategory.value;
+    const q = (search.value || "").trim().toLowerCase();
+    return db.expenses.filter(e=>{
+      if(cat && e.category !== cat) return false;
+      if(q){
+        const hay = (e.note || "").toLowerCase();
+        if(!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }
+
+  function deleteExpense(id){
+    if(!confirm("¿Eliminar este gasto?")) return;
+    db.expenses = db.expenses.filter(x=>x.id!==id);
+    saveDB(db);
+    render();
+  }
+  window.deleteExpense = deleteExpense;
+
+  function renderTable(){
+    tbody.innerHTML = "";
+    const list = filteredExpenses();
+
+    if(list.length===0){
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td colspan="5" class="small muted">No hay gastos con esos filtros.</td>`;
+      tbody.appendChild(tr);
+      return;
+    }
+
+    list.forEach(e=>{
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${fmtDate(e.date)}</td>
+        <td><span class="pill info">${e.category}</span></td>
+        <td><b>${money(e.amount)}</b></td>
+        <td class="small">${e.note ? e.note : "<span class='muted'>—</span>"}</td>
+        <td>
+          <div class="flex">
+            <button class="btn bad" onclick="deleteExpense('${e.id}')">Eliminar</button>
+          </div>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function weeklySummary(){
+    // Combine sales (Retirado/Depositado) and expenses by week
+    const map = new Map(); // week -> {revenue, profitBruta, expenses, net, countSales}
+
+    // Sales
+    db.items.filter(it => isSaleReal(it.status)).forEach(it=>{
+      const d = it.dates.depositado || it.dates.retirado;
+      if(!d) return;
+      const wk = isoWeekKey(d);
+      if(!map.has(wk)) map.set(wk, {revenue:0, profitBruta:0, expenses:0, net:0, countSales:0});
+      const o = map.get(wk);
+      const p = calcProfit(db, it);
+      o.revenue += p.revenue;
+      o.profitBruta += p.profit; // already revenue - variable costs
+      o.countSales += 1;
+    });
+
+    // Expenses
+    db.expenses.forEach(ex=>{
+      const wk = isoWeekKey(ex.date);
+      if(!map.has(wk)) map.set(wk, {revenue:0, profitBruta:0, expenses:0, net:0, countSales:0});
+      const o = map.get(wk);
+      o.expenses += num(ex.amount);
+    });
+
+    // Compute net
+    for(const [wk,o] of map.entries()){
+      o.net = o.profitBruta - o.expenses;
+    }
+
+    const rows = Array.from(map.entries())
+      .sort((a,b)=> a[0] < b[0] ? 1 : -1)
+      .slice(0,8);
+
+    if(rows.length===0){
+      weeklyBox.innerHTML = `<span class="muted">Aún no hay ventas reales ni gastos registrados.</span>`;
+      return;
+    }
+
+    weeklyBox.innerHTML = rows.map(([wk,o])=>{
+      const badge = o.net >= 0 ? "ok" : "bad";
+      return `
+        <div style="margin-bottom:10px">
+          <span class="pill ${badge}">${wk}</span>
+          <div class="small" style="margin-top:6px">
+            • Ventas: <b>${money(o.revenue)}</b> · #items: <b>${o.countSales}</b><br/>
+            • Utilidad bruta: <b>${money(o.profitBruta)}</b><br/>
+            • Gastos: <b>${money(o.expenses)}</b><br/>
+            • <b>Utilidad neta:</b> <b>${money(o.net)}</b>
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  document.getElementById("btnExport").addEventListener("click", ()=>{
+    const blob = new Blob([JSON.stringify({expenses: db.expenses, exportedAt: new Date().toISOString()}, null, 2)], {type:"application/json"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "gastos_export.json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  filterCategory.addEventListener("input", renderTable);
+  search.addEventListener("input", renderTable);
+
+  function render(){
+    renderTable();
+    weeklySummary();
+  }
+
+  render();
+</script>
+</body>
+</html>
