@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Configuración — Tienda</title>
+  <link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="logo">⚙️</div>
+    <div>
+      <h1>Configuración del negocio</h1>
+      <div class="small">Ajusta parámetros para que los cálculos sean consistentes en todo el sistema.</div>
+    </div>
+  </div>
+
+  <nav class="nav">
+    <a href="index.html">Inicio</a>
+    <a class="active" href="config.html">Config</a>
+    <a href="lotes.html">Lotes</a>
+    <a href="inventario.html">Inventario</a>
+    <a href="ventas.html">Ventas</a>
+    <a href="gastos.html">Gastos</a>
+    <a href="reportes.html">Reportes</a>
+  </nav>
+</header>
+
+<main>
+  <section class="card">
+    <h2>👋 Cómo usar esta pantalla</h2>
+    <div class="small">
+      • Aquí defines el <b>tipo de cambio</b>, el costo interno por <b>No retirado</b> y el costo fijo de <b>Mariita</b>.<br/>
+      • Estos valores se aplican automáticamente en costos y utilidades.<br/>
+      • Consejo: cambia el tipo de cambio solo cuando de verdad cambie tu referencia (para mantener consistencia).
+    </div>
+  </section>
+
+  <section class="grid cols2">
+    <div class="card">
+      <h2>💱 Tipo de cambio</h2>
+      <div class="small">Convierte Quetzales (Q) a dólares ($). Default recomendado: <b>7.50</b>.</div>
+      <label>Tipo de cambio (Q → $)</label>
+      <input id="fx" type="number" step="0.01" placeholder="7.50"/>
+      <div class="small" id="fxPreview" style="margin-top:10px"></div>
+      <hr/>
+      <div class="small muted">
+        Consejo: si una prenda cuesta Q100 y fx=7.50, su costo base en $ será 100/7.50 = $13.33 (sin aduana).
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>🚫 Costos por “No retirado”</h2>
+      <div class="small">
+        Este costo es interno (lo pagas tú) cuando el cliente no retira y tú asumes la pérdida del envío.
+      </div>
+      <label>No retirado — destino fijo ($ por prenda)</label>
+      <input id="noRetFixed" type="number" step="0.01" placeholder="1.00"/>
+      <label>No retirado — personalizado ($ por prenda)</label>
+      <input id="noRetCustom" type="number" step="0.01" placeholder="3.00"/>
+      <hr/>
+      <div class="small muted">
+        Consejo: este costo se aplica solo cuando el estado de la prenda pasa a <b>No retirado</b>.
+      </div>
+    </div>
+  </section>
+
+  <section class="grid cols2">
+    <div class="card">
+      <h2>👩‍💼 Mariita — costo fijo por ayuda</h2>
+      <div class="small">
+        Mariita cobra un <b>monto fijo</b> los miércoles y sábados por cada ayuda que brinda en Metrogalerías.
+        Este costo se asigna a cada prenda al marcarla como <b>Retirado</b> o <b>Depositado</b>.
+      </div>
+      <label>Costo fijo Mariita ($ por prenda)</label>
+      <input id="mariitaFixed" type="number" step="0.01" placeholder="0.00"/>
+      <div class="small muted" style="margin-top:10px">
+        Tip: si Mariita cobra por “ayuda” y esa ayuda incluye varias prendas, en la fase Pro agregamos “paquetes”
+        para prorratear. Por ahora lo dejamos <b>por prenda</b> para que no se complique.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>🗓️ Depósitos</h2>
+      <div class="small">Días habituales de depósito para conciliación interna.</div>
+      <div class="flex" style="margin-top:10px">
+        <span class="pill info">Miércoles</span>
+        <span class="pill info">Sábado</span>
+      </div>
+      <hr/>
+      <div class="small muted">
+        Consejo: marca <b>Depositado</b> solo cuando el dinero ya esté confirmado. Así tus reportes cuadran con caja.
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="flex">
+      <button class="btn ok" id="btnSave">Guardar configuración</button>
+      <button class="btn" id="btnResetDefaults">Restaurar valores sugeridos</button>
+      <span class="small" id="msg"></span>
+    </div>
+  </section>
+</main>
+
+<script src="app.js"></script>
+<script>
+  const db = loadDB();
+
+  const fx = document.getElementById("fx");
+  const noRetFixed = document.getElementById("noRetFixed");
+  const noRetCustom = document.getElementById("noRetCustom");
+  const mariitaFixed = document.getElementById("mariitaFixed");
+  const fxPreview = document.getElementById("fxPreview");
+  const msg = document.getElementById("msg");
+
+  function render(){
+    fx.value = db.config.fx ?? 7.50;
+    noRetFixed.value = db.config.noRetFixed ?? 1.00;
+    noRetCustom.value = db.config.noRetCustom ?? 3.00;
+    mariitaFixed.value = db.config.mariitaFixed ?? 0.00;
+    previewFX();
+  }
+
+  function previewFX(){
+    const v = Number(fx.value || 7.50);
+    const exampleQ = 100;
+    const usd = exampleQ / v;
+    fxPreview.innerHTML = `Ejemplo rápido: Q${exampleQ} → <b>${money(usd)}</b>`;
+  }
+
+  fx.addEventListener("input", previewFX);
+
+  document.getElementById("btnSave").addEventListener("click", ()=>{
+    db.config.fx = Number(fx.value || 7.50);
+    db.config.noRetFixed = Number(noRetFixed.value || 1.00);
+    db.config.noRetCustom = Number(noRetCustom.value || 3.00);
+    db.config.mariitaFixed = Number(mariitaFixed.value || 0.00);
+
+    saveDB(db);
+    msg.textContent = "✅ Guardado.";
+    setTimeout(()=>msg.textContent="", 1400);
+  });
+
+  document.getElementById("btnResetDefaults").addEventListener("click", ()=>{
+    fx.value = 7.50;
+    noRetFixed.value = 1.00;
+    noRetCustom.value = 3.00;
+    mariitaFixed.value = 0.00;
+    previewFX();
+  });
+
+  render();
+</script>
+</body>
+</html>
