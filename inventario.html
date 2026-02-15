@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Inventario — Prendas</title>
+  <link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="logo">🧾</div>
+    <div>
+      <h1>Inventario (Prendas / Productos)</h1>
+      <div class="small">Crea prendas vinculadas a un lote para costo real: compra(Q→$) + aduana/pieza.</div>
+    </div>
+  </div>
+
+  <nav class="nav">
+    <a href="index.html">Inicio</a>
+    <a href="config.html">Config</a>
+    <a href="lotes.html">Lotes</a>
+    <a class="active" href="inventario.html">Inventario</a>
+    <a href="ventas.html">Ventas</a>
+    <a href="gastos.html">Gastos</a>
+    <a href="reportes.html">Reportes</a>
+  </nav>
+</header>
+
+<main>
+  <section class="card">
+    <h2>👋 Cómo usar esta pantalla</h2>
+    <div class="small">
+      1) Asegúrate de tener al menos un <b>Lote</b> creado (aduana y piezas).<br/>
+      2) Ingresa cada prenda con su <b>costo en quetzales</b> y elige su <b>lote</b>.<br/>
+      3) El sistema calcula: compra($) + aduana/pieza = <b>costo base unitario</b>.<br/>
+      4) Cuando se venda, la utilidad se calcula en la pantalla de <b>Ventas</b> al marcar <b>Retirado/Depositado</b>.
+    </div>
+  </section>
+
+  <section class="grid cols2">
+    <div class="card">
+      <h2>➕ Agregar prenda</h2>
+
+      <label>Lote (obligatorio para aduana/pieza)</label>
+      <select id="lotSelect"></select>
+      <div class="small muted" id="lotInfo" style="margin-top:8px"></div>
+
+      <div class="grid cols2" style="margin-top:12px">
+        <div>
+          <label>Tipo / Categoría</label>
+          <input id="type" placeholder="Ej: Gorra, Blusa, Camisa, Accesorio"/>
+        </div>
+        <div>
+          <label>Género</label>
+          <select id="gender">
+            <option>Hombre</option>
+            <option>Mujer</option>
+            <option>Unisex</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="grid cols2" style="margin-top:12px">
+        <div>
+          <label>Condición</label>
+          <select id="condition">
+            <option>Nueva</option>
+            <option>Usada</option>
+          </select>
+        </div>
+        <div>
+          <label>SKU / Nota (opcional)</label>
+          <input id="sku" placeholder="Ej: Nike L, color negro, detalle..."/>
+        </div>
+      </div>
+
+      <div class="grid cols2" style="margin-top:12px">
+        <div>
+          <label>Costo compra (Q)</label>
+          <input id="costQ" type="number" step="0.01" placeholder="0.00"/>
+        </div>
+        <div>
+          <label>Tipo de cambio (Q → $)</label>
+          <input id="fx" type="number" step="0.01" placeholder="7.50"/>
+          <div class="small muted">Tip: se llena desde Config, pero lo puedes cambiar por prenda.</div>
+        </div>
+      </div>
+
+      <div class="grid cols2" style="margin-top:12px">
+        <div>
+          <label>Precio sugerido de venta ($) (opcional)</label>
+          <input id="suggestedPrice" type="number" step="0.01" placeholder="0.00"/>
+        </div>
+        <div>
+          <label>Fecha de ingreso</label>
+          <input id="dateIn" type="date"/>
+        </div>
+      </div>
+
+      <div class="flex" style="margin-top:12px">
+        <button class="btn ok" id="btnAdd">Guardar prenda</button>
+        <span class="small" id="preview"></span>
+      </div>
+
+      <hr/>
+      <div class="small muted">
+        Consejo: si no asignas lote, el sistema no sabrá la aduana/pieza. Mantén el flujo: <b>Lote → Prendas → Ventas</b>.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>💡 Consejos rápidos</h2>
+      <div class="small" id="tips"></div>
+      <hr/>
+      <div class="small muted">
+        Recomendación: usa “Tipo” consistente (ej. “Gorra” siempre igual) para que los reportes por categoría sean precisos.
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="flex" style="justify-content:space-between">
+      <h2 style="margin:0">📋 Lista de prendas</h2>
+      <div class="flex">
+        <select id="filterStatus">
+          <option value="">Todos los estados</option>
+        </select>
+        <input id="search" placeholder="Buscar (tipo, sku)..." style="width:240px"/>
+        <button class="btn" id="btnExportItems">Exportar inventario</button>
+      </div>
+    </div>
+
+    <div class="small muted" style="margin-top:6px">
+      Nota: aquí puedes editar costos y detalles. El flujo de venta/estado se gestiona en <b>Ventas</b>.
+    </div>
+
+    <div style="overflow:auto;margin-top:10px">
+      <table>
+        <thead>
+          <tr>
+            <th>Prenda</th>
+            <th>Lote</th>
+            <th>Costos</th>
+            <th>Estado</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script src="app.js"></script>
+<script>
+  const db = loadDB();
+
+  // Elements
+  const lotSelect = document.getElementById("lotSelect");
+  const lotInfo = document.getElementById("lotInfo");
+  const type = document.getElementById("type");
+  const gender = document.getElementById("gender");
+  const condition = document.getElementById("condition");
+  const sku = document.getElementById("sku");
+  const costQ = document.getElementById("costQ");
+  const fx = document.getElementById("fx");
+  const suggestedPrice = document.getElementById("suggestedPrice");
+  const dateIn = document.getElementById("dateIn");
+  const preview = document.getElementById("preview");
+  const tipsBox = document.getElementById("tips");
+  const tbody = document.getElementById("tbody");
+  const filterStatus = document.getElementById("filterStatus");
+  const search = document.getElementById("search");
+
+  // Fill status filter
+  STATUS.forEach(s=>{
+    const op = document.createElement("option");
+    op.value = s;
+    op.textContent = s;
+    filterStatus.appendChild(op);
+  });
+
+  // default date
+  dateIn.value = new Date().toISOString().slice(0,10);
+
+  // default fx from config
+  fx.value = db.config.fx ?? 7.50;
+
+  function renderLots(){
+    lotSelect.innerHTML = "";
+    if(db.lots.length === 0){
+      const op = document.createElement("option");
+      op.value = "";
+      op.textContent = "No hay lotes — crea uno primero en Lotes";
+      lotSelect.appendChild(op);
+      lotSelect.disabled = true;
+      lotInfo.innerHTML = `<span class="pill bad">Falta lote</span> Ve a <b>Lotes</b> y crea uno para poder prorratear aduana.`;
+      return;
+    }
+
+    lotSelect.disabled = false;
+
+    db.lots.forEach((l, idx)=>{
+      const op = document.createElement("option");
+      op.value = l.id;
+      const per = num(l.customsTotal)/Math.max(1, Math.floor(num(l.qty)||1));
+      op.textContent = `${new Date(l.date+"T00:00:00").toLocaleDateString("es-SV")} — ${l.qty} pcs — Aduana/pza ${money(per)}`;
+      lotSelect.appendChild(op);
+      if(idx===0) lotSelect.value = l.id;
+    });
+
+    renderLotInfo();
+  }
+
+  function renderLotInfo(){
+    const id = lotSelect.value;
+    const lot = db.lots.find(l=>l.id===id);
+    if(!lot){ lotInfo.textContent = ""; return; }
+
+    const per = num(lot.customsTotal)/Math.max(1, Math.floor(num(lot.qty)||1));
+    lotInfo.innerHTML = `
+      <span class="pill info">Aduana/pieza</span> <b>${money(per)}</b>
+      <span class="muted"> · Aduana total ${money(lot.customsTotal)} / ${lot.qty} piezas</span>
+    `;
+    updatePreview();
+  }
+
+  lotSelect.addEventListener("change", renderLotInfo);
+  [costQ, fx].forEach(el=>el.addEventListener("input", updatePreview));
+
+  function updatePreview(){
+    const id = lotSelect.value;
+    const lot = db.lots.find(l=>l.id===id);
+    const _fx = num(fx.value || db.config.fx || 7.5);
+    const q = num(costQ.value);
+    const costUSD = q / _fx;
+
+    let customsPer = 0;
+    if(lot){
+      customsPer = num(lot.customsTotal)/Math.max(1, Math.floor(num(lot.qty)||1));
+    }
+    const base = costUSD + customsPer;
+
+    preview.innerHTML = `Costo base: <b>${money(base)}</b> <span class="muted">(compra ${money(costUSD)} + aduana ${money(customsPer)})</span>`;
+  }
+
+  function renderTips(){
+    const t = [];
+    if(db.lots.length===0){
+      t.push("• No hay lotes. Sin lote no hay aduana/pieza. Ve a Lotes y crea uno.");
+    } else {
+      t.push("• Mantén el tipo de cambio consistente para que tus costos no se distorsionen.");
+      t.push("• Las prendas usadas suelen rotar rápido: marca bien condición para reportes de rentabilidad.");
+    }
+
+    const stock = db.items.filter(x=>x.status==="En stock").length;
+    const reserved = db.items.filter(x=>x.status==="Reservado/Vendido").length;
+
+    if(stock >= 30) t.push(`• Stock alto (${stock}). Considera promo por categoría en Reportes.`);
+    if(reserved > 0) t.push(`• Tienes ${reserved} reservadas: recuerda que NO es dinero hasta Retirado.`);
+
+    tipsBox.innerHTML = t.map(x=>`• ${x.replace(/^•\s*/,"")}`).join("<br/>");
+  }
+
+  document.getElementById("btnAdd").addEventListener("click", ()=>{
+    if(db.lots.length===0){
+      alert("Primero crea un lote en la pantalla Lotes.");
+      return;
+    }
+    const lotId = lotSelect.value;
+    if(!lotId){
+      alert("Selecciona un lote.");
+      return;
+    }
+
+    const item = {
+      id: uid("ITM"),
+      lotId,
+      type: (type.value || "").trim() || "Sin tipo",
+      gender: gender.value,
+      condition: condition.value,
+      sku: (sku.value || "").trim(),
+      costQ: num(costQ.value),
+      fx: num(fx.value || db.config.fx || 7.5),
+      suggestedPrice: num(suggestedPrice.value),
+      salePrice: 0,
+      status: "En stock",
+      channel: "",
+      noRetType: "Destino fijo", // cuando aplique
+      mariitaCost: 0,
+      dates: {
+        in: dateIn.value || new Date().toISOString().slice(0,10),
+        reserved: "",
+        noRetirado: "",
+        reenvio: "",
+        retirado: "",
+        depositado: ""
+      }
+    };
+
+    db.items.unshift(item);
+    saveDB(db);
+
+    // reset a few fields
+    type.value = "";
+    sku.value = "";
+    costQ.value = "";
+    suggestedPrice.value = "";
+    dateIn.value = new Date().toISOString().slice(0,10);
+    fx.value = db.config.fx ?? 7.50;
+    updatePreview();
+    render();
+  });
+
+  function filteredItems(){
+    const st = filterStatus.value;
+    const q = (search.value || "").trim().toLowerCase();
+    return db.items.filter(it=>{
+      if(st && it.status !== st) return false;
+      if(q){
+        const hay = `${it.type} ${it.sku||""}`.toLowerCase();
+        if(!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }
+
+  function lotLabel(lotId){
+    const lot = db.lots.find(l=>l.id===lotId);
+    if(!lot) return "—";
+    const d = new Date(lot.date+"T00:00:00").toLocaleDateString("es-SV");
+    return `${d} · ${lot.qty} pcs`;
+  }
+
+  function renderTable(){
+    tbody.innerHTML = "";
+    const list = filteredItems();
+
+    if(list.length===0){
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td colspan="5" class="small muted">No hay prendas con esos filtros.</td>`;
+      tbody.appendChild(tr);
+      return;
+    }
+
+    list.forEach(it=>{
+      const costs = calcItemCosts(db, it);
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>
+          <div><b>${it.type}</b> <span class="muted">(${it.gender}, ${it.condition})</span></div>
+          <div class="small muted">${it.sku ? it.sku : ""}</div>
+          <div class="small muted">Ingreso: ${new Date(it.dates.in+"T00:00:00").toLocaleDateString("es-SV")}</div>
+        </td>
+        <td class="small">
+          ${lotLabel(it.lotId)}<br/>
+          <span class="muted">Aduana/pza:</span> <b>${money(costs.customsPer)}</b>
+        </td>
+        <td class="small">
+          <div><span class="muted">Compra:</span> Q${num(it.costQ).toFixed(2)} → <b>${money(costs.costUSD)}</b> (fx ${num(costs.fx).toFixed(2)})</div>
+          <div><span class="muted">Costo base:</span> <b>${money(costs.base)}</b></div>
+          ${it.suggestedPrice ? `<div><span class="muted">Venta sugerida:</span> <b>${money(it.suggestedPrice)}</b></div>` : `<div class="muted">Venta sugerida: —</div>`}
+        </td>
+        <td><span class="pill info">${it.status}</span></td>
+        <td>
+          <div class="flex">
+            <button class="btn" onclick="editItem('${it.id}')">Editar</button>
+            <button class="btn bad" onclick="deleteItem('${it.id}')">Eliminar</button>
+          </div>
+          <div class="small muted">Las ventas/estados se manejan en “Ventas”.</div>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function editItem(id){
+    const it = db.items.find(x=>x.id===id);
+    if(!it) return;
+
+    const newCostQ = prompt("Costo compra en Q:", String(it.costQ ?? 0));
+    if(newCostQ === null) return;
+
+    const newFx = prompt("Tipo de cambio (Q→$):", String(it.fx ?? (db.config.fx ?? 7.5)));
+    if(newFx === null) return;
+
+    const newSuggested = prompt("Precio sugerido ($) (opcional):", String(it.suggestedPrice ?? 0));
+    if(newSuggested === null) return;
+
+    it.costQ = num(newCostQ);
+    it.fx = num(newFx);
+    it.suggestedPrice = num(newSuggested);
+
+    saveDB(db);
+    render();
+  }
+  window.editItem = editItem;
+
+  function deleteItem(id){
+    // no preguntar mil: simple pero seguro
+    if(!confirm("¿Eliminar esta prenda del inventario?")) return;
+    db.items = db.items.filter(x=>x.id!==id);
+    saveDB(db);
+    render();
+  }
+  window.deleteItem = deleteItem;
+
+  filterStatus.addEventListener("input", renderTable);
+  search.addEventListener("input", renderTable);
+
+  document.getElementById("btnExportItems").addEventListener("click", ()=>{
+    const blob = new Blob([JSON.stringify({items: db.items, exportedAt: new Date().toISOString()}, null, 2)], {type:"application/json"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "inventario_export.json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  function render(){
+    renderLots();
+    renderTips();
+    updatePreview();
+    renderTable();
+  }
+
+  render();
+</script>
+</body>
+</html>
