@@ -9,10 +9,10 @@
 <body>
 <header>
   <div class="brand">
-    <div class="logo">📈</div>
+    <div class="logo">📊</div>
     <div>
       <h1>Reportes & Analítica</h1>
-      <div class="small">Canales, rotación, utilidad bruta vs neta, No retirado, y recomendaciones.</div>
+      <div class="small">Canales, rotación, utilidad bruta vs neta, No retirado, recuperación por lote y recomendaciones.</div>
     </div>
   </div>
 
@@ -34,7 +34,7 @@
       • <b>Ventas reales</b> = prendas en estado <b>Retirado</b> o <b>Depositado</b>.<br/>
       • <b>Utilidad bruta</b> = venta − (compra+aduana+mariita+penalización no retirado).<br/>
       • <b>Utilidad neta</b> = utilidad bruta − <b>gastos generales</b> (gasolina, bolsas, etiquetas, publicidad).<br/>
-      • El objetivo: ver qué canal vende más, cuál falla más (No retirado) y qué categorías conviene promocionar.
+      • <b>Recuperación por lote</b> compara lo recuperado (ventas reales) vs inversión (compra Q→$ + aduana).
     </div>
   </section>
 
@@ -86,6 +86,27 @@
   </section>
 
   <section class="card" style="margin-top:12px">
+    <h2>💰 Recuperación por lote</h2>
+    <div class="small muted">
+      Inversión del lote = compra(Q→$) + aduana. Recuperación = suma de ventas Retirado/Depositado del lote.
+    </div>
+    <hr/>
+    <div style="overflow:auto">
+      <table>
+        <thead>
+          <tr>
+            <th>Lote</th>
+            <th>Inversión</th>
+            <th>Recuperado</th>
+            <th>Falta / Exceso</th>
+          </tr>
+        </thead>
+        <tbody id="lotRecTbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:12px">
     <div class="flex" style="justify-content:space-between">
       <h2 style="margin:0">📤 Exportar</h2>
       <div class="flex">
@@ -93,7 +114,7 @@
       </div>
     </div>
     <div class="small muted" style="margin-top:8px">
-      Consejo: exporta periódicamente para respaldo. Más adelante lo migramos a Firebase para que no dependa del navegador.
+      Consejo: exporta periódicamente para respaldo. Más adelante lo migramos a Firebase para multi-dispositivo.
     </div>
   </section>
 </main>
@@ -124,11 +145,15 @@
   const noRetCount = db.items.filter(x=>x.status==="No retirado").length;
 
   const sales = db.items.filter(x=>isSaleReal(x.status));
-  const revenue = sales.reduce((a,x)=>a+calcProfit(db,x).revenue,0);
+  const revenue = sales.reduce((a,x)=>a+num(x.salePrice),0);
   const profitBruta = sales.reduce((a,x)=>a+calcProfit(db,x).profit,0);
 
   const totalExpenses = db.expenses.reduce((a,x)=>a+num(x.amount),0);
   const profitNetaApprox = profitBruta - totalExpenses;
+
+  const inv = globalInvestmentUSD(db);
+  const rec = globalRecoveryUSD(db);
+  const diff = globalNetAfterInvestment(db);
 
   document.getElementById("kpis").innerHTML = `
     • Stock: <b>${stockCount}</b><br/>
@@ -137,7 +162,11 @@
     • Ventas reales (Retirado+): <b>${money(revenue)}</b><br/>
     • Utilidad bruta (Retirado+): <b>${money(profitBruta)}</b><br/>
     • Gastos registrados: <b>${money(totalExpenses)}</b><br/>
-    • Utilidad neta aprox: <b>${money(profitNetaApprox)}</b>
+    • Utilidad neta aprox: <b>${money(profitNetaApprox)}</b><br/>
+    <hr/>
+    • Inversión global: <b>${money(inv)}</b><br/>
+    • Recuperado global: <b>${money(rec)}</b><br/>
+    • Balance: <b>${diff>=0 ? "✅ +" : "⚠️ -"}${money(Math.abs(diff))}</b>
   `;
 
   // ---------- Weekly ----------
@@ -149,7 +178,7 @@
     if(!weekMap.has(wk)) weekMap.set(wk, {rev:0, bruta:0, exp:0, net:0, count:0});
     const o = weekMap.get(wk);
     const p = calcProfit(db, it);
-    o.rev += p.revenue;
+    o.rev += num(it.salePrice);
     o.bruta += p.profit;
     o.count += 1;
   });
@@ -196,7 +225,7 @@
       const o = ensureCh(ch);
       const p = calcProfit(db, it);
       o.soldCount += 1;
-      o.rev += p.revenue;
+      o.rev += num(it.salePrice);
       o.profit += p.profit;
     }
   });
@@ -218,7 +247,7 @@
           </div>
         `;
       }).join("")
-    : `<span class="muted">Aún no hay datos por canal. Marca canal cuando pongas Reservado/Retirado.</span>`;
+    : `<span class="muted">Aún no hay datos por canal. Registra canal cuando marques vendido.</span>`;
 
   // ---------- Stock by category ----------
   const stock = db.items.filter(x=>x.status==="En stock");
@@ -234,7 +263,6 @@
     : `<span class="muted">No hay stock disponible.</span>`;
 
   // ---------- Rotation ----------
-  // avg days from in -> retirado/depositado, by type
   const rotMap = new Map(); // type -> {sumDays,count}
   sales.forEach(it=>{
     const end = it.dates.depositado || it.dates.retirado;
@@ -257,22 +285,56 @@
       }).join("")
     : `<span class="muted">Aún no hay ventas reales suficientes para calcular rotación.</span>`;
 
+  // ---------- Recuperación por lote ----------
+  const lotRecTbody = document.getElementById("lotRecTbody");
+
+  function renderLotRecovery(){
+    lotRecTbody.innerHTML = "";
+
+    if(!db.lots || db.lots.length===0){
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td colspan="4" class="small muted">No hay lotes registrados.</td>`;
+      lotRecTbody.appendChild(tr);
+      return;
+    }
+
+    db.lots.forEach(lot=>{
+      const invLot = lotInvestmentUSD(db, lot);
+      const recLot = lotRecoveryUSD(db, lot.id);
+      const diffLot = recLot - invLot;
+
+      const pillCls = diffLot >= 0 ? "ok" : "bad";
+      const label = new Date(lot.date+"T00:00:00").toLocaleDateString("es-SV");
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>
+          <b>${label}</b>
+          <div class="small muted">${lot.qty} pcs · CompraQ ${num(lot.purchaseTotalQ||0).toFixed(2)} · Aduana ${money(lot.customsTotal||0)}</div>
+        </td>
+        <td><b>${money(invLot)}</b></td>
+        <td><b>${money(recLot)}</b></td>
+        <td><span class="pill ${pillCls}">${diffLot>=0 ? "Exceso" : "Falta"} ${money(Math.abs(diffLot))}</span></td>
+      `;
+      lotRecTbody.appendChild(tr);
+    });
+  }
+  renderLotRecovery();
+
   // ---------- Recommendations & Alerts ----------
   const recommendations = [];
 
-  // Promo suggestion: top stock category
   if(stockRows.length){
     const [topType, topCount] = stockRows[0];
     if(topCount >= 10){
-      recommendations.push(`📣 Mucho stock en <b>${topType}</b> (${topCount}). Sugerencia: promo (combo, descuento por transferencia, envío gratis parcial).`);
+      recommendations.push(`📣 Mucho stock en <b>${topType}</b> (${topCount}). Sugerencia: promo (combo, descuento, 2x, etc.).`);
     } else {
       recommendations.push(`✅ Stock por categoría controlado. Cuando una categoría supere 10 piezas, sugerimos promoción.`);
     }
   } else {
-    recommendations.push(`📦 No hay stock disponible. Enfócate en reabastecer con lotes y registrar costos.`);
+    recommendations.push(`📦 No hay stock disponible. Enfócate en reabastecer y registrar lotes.`);
   }
 
-  // Channel quality suggestion
   const worstCh = chRows
     .map(([ch,o])=>{
       const denom = (o.soldCount + o.noRet);
@@ -285,10 +347,9 @@
   if(worstCh && worstCh.noRet >= 2){
     recommendations.push(`⚠️ Canal con peor retiro: <b>${worstCh.ch}</b> (No retirado ${(worstCh.ratio*100).toFixed(0)}%). Sugerencia: confirmar antes de enviar o filtrar.`);
   } else {
-    recommendations.push(`📲 No hay evidencia fuerte de un canal “malo” todavía. Sigue registrando canal en cada venta.`);
+    recommendations.push(`📲 Aún no hay evidencia fuerte de un canal “malo”. Sigue registrando canal en cada venta.`);
   }
 
-  // Expense insight
   const ads = db.expenses.filter(x=>x.category==="Publicidad").reduce((a,x)=>a+num(x.amount),0);
   if(ads > 0){
     recommendations.push(`📢 Publicidad registrada: <b>${money(ads)}</b>. Revisa semanas con más ads vs semanas con más ventas para medir retorno.`);
@@ -299,9 +360,9 @@
   document.getElementById("reco").innerHTML = recommendations.map(x=>`• ${x}`).join("<br/><br/>");
 
   const alerts = [];
-  if(reservedCount >= 10) alerts.push(`<span class="pill warn">Reservados altos</span> ${reservedCount} reservados: ojo con seguimiento para que no se enfríen.`);
-  if(noRetCount >= 5) alerts.push(`<span class="pill bad">No retirado alto</span> ${noRetCount} no retirados: estás perdiendo costos internos.`);
-  if(stockCount >= 40) alerts.push(`<span class="pill info">Stock muy alto</span> ${stockCount} en stock: probable necesidad de promo.`);
+  if(reservedCount >= 10) alerts.push(`<span class="pill warn">Reservados altos</span> ${reservedCount} reservados: seguimiento.`);
+  if(noRetCount >= 5) alerts.push(`<span class="pill bad">No retirado alto</span> ${noRetCount}: estás pagando costos internos.`);
+  if(stockCount >= 40) alerts.push(`<span class="pill info">Stock alto</span> ${stockCount} en stock: promo probable.`);
   if(alerts.length===0) alerts.push(`<span class="pill ok">OK</span> Sin alertas críticas detectadas.`);
 
   document.getElementById("alerts").innerHTML = alerts.join("<br/><br/>");
@@ -315,13 +376,9 @@
       items: db.items,
       expenses: db.expenses
     };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {type:"application/json"});
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "tienda_export_completo.json";
-    a.click();
-    URL.revokeObjectURL(a.href);
+    exportJSON("tienda_export_completo.json", payload);
   });
 </script>
 </body>
 </html>
+
