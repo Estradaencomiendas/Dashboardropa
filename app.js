@@ -1,10 +1,7 @@
 /* =========================================================================
-   app.js — Core (DB local + utilidades + cálculos + helpers de inversión)
-   Funciona con: index.html, config.html, lotes.html, inventario.html,
-   ventas.html, gastos.html, reportes.html
+   app.js — FIX (DB local + utilidades + cálculos + inversión/recuperación)
    ========================================================================= */
 
-/* ----------------------------- Constantes ------------------------------ */
 const DB_KEY = "tienda_db_v1";
 
 const STATUS = [
@@ -16,7 +13,7 @@ const STATUS = [
   "Depositado"
 ];
 
-/* ----------------------------- Utilidades ------------------------------ */
+// ---------- Utils ----------
 function uid(prefix = "ID") {
   const rand = Math.random().toString(16).slice(2);
   const t = Date.now().toString(16);
@@ -37,7 +34,7 @@ function isSaleReal(status) {
   return status === "Retirado" || status === "Depositado";
 }
 
-/* ----------------------------- DB Local -------------------------------- */
+// ---------- Default DB ----------
 function defaultDB() {
   return {
     config: {
@@ -52,92 +49,84 @@ function defaultDB() {
   };
 }
 
-function saveDB(db) {
-  localStorage.setItem(DB_KEY, JSON.stringify(db));
-}
-
-function loadDB() {
-  try {
-    const raw = localStorage.getItem(DB_KEY);
-    if (!raw) {
-      const db = defaultDB();
-      saveDB(db);
-      return db;
-    }
-    const db = JSON.parse(raw);
-    return db;
-  } catch (e) {
-    const db = defaultDB();
-    saveDB(db);
-    return db;
+// ---------- Migration ----------
+function ensureSaleMeta(item) {
+  if (!item.saleMeta) {
+    item.saleMeta = { customerName: "", destination: "", pickupDueDate: "", courier: "" };
+  } else {
+    item.saleMeta.customerName = item.saleMeta.customerName || "";
+    item.saleMeta.destination = item.saleMeta.destination || "";
+    item.saleMeta.pickupDueDate = item.saleMeta.pickupDueDate || "";
+    item.saleMeta.courier = item.saleMeta.courier || "";
   }
 }
 
-/* ---------------------- Migración / compatibilidad --------------------- */
-function ensureSaleMeta(item) {
-  item.saleMeta = item.saleMeta || {
-    customerName: "",
-    destination: "",
-    pickupDueDate: "",
-    courier: ""
-  };
-  return item;
-}
-
 function migrateDB(db) {
-  db = db || {};
-  db.config = db.config || {};
-  db.lots = db.lots || [];
-  db.items = db.items || [];
-  db.expenses = db.expenses || [];
+  if (!db || typeof db !== "object") db = defaultDB();
 
-  // defaults config
+  db.config = db.config || {};
+  db.lots = Array.isArray(db.lots) ? db.lots : [];
+  db.items = Array.isArray(db.items) ? db.items : [];
+  db.expenses = Array.isArray(db.expenses) ? db.expenses : [];
+
   db.config.fx = (db.config.fx ?? 7.5);
   db.config.noRetFixed = (db.config.noRetFixed ?? 1.0);
   db.config.noRetCustom = (db.config.noRetCustom ?? 3.0);
   db.config.mariitaFixed = (db.config.mariitaFixed ?? 0.0);
 
-  // lot.purchaseTotalQ nuevo (inversión en Q)
   db.lots.forEach(l => {
-    if (l.purchaseTotalQ === undefined) l.purchaseTotalQ = 0;
-    if (l.fx === undefined) l.fx = db.config.fx; // para consistencia
-    if (l.customsTotal === undefined) l.customsTotal = 0;
-    if (l.qty === undefined) l.qty = 1;
     if (!l.id) l.id = uid("LOT");
+    if (l.date === undefined) l.date = new Date().toISOString().slice(0, 10);
+    if (l.qty === undefined) l.qty = 1;
+    if (l.customsTotal === undefined) l.customsTotal = 0;
+    if (l.purchaseTotalQ === undefined) l.purchaseTotalQ = 0; // NUEVO
+    if (l.fx === undefined) l.fx = db.config.fx;              // NUEVO
   });
 
-  // items saleMeta nuevo
   db.items.forEach(it => {
-    ensureSaleMeta(it);
     if (!it.id) it.id = uid("ITM");
     if (!it.status) it.status = "En stock";
     if (!it.dates) {
       it.dates = { in:"", reserved:"", noRetirado:"", reenvio:"", retirado:"", depositado:"" };
     }
+    ensureSaleMeta(it); // NUEVO
+    if (it.noRetType === undefined) it.noRetType = "Destino fijo";
+    if (it.mariitaCost === undefined) it.mariitaCost = 0;
+    if (it.salePrice === undefined) it.salePrice = 0;
+    if (it.channel === undefined) it.channel = "";
   });
 
-  // expenses defaults
   db.expenses.forEach(ex => {
     if (!ex.id) ex.id = uid("EXP");
     if (!ex.date) ex.date = new Date().toISOString().slice(0, 10);
     if (ex.amount === undefined) ex.amount = 0;
+    if (!ex.category) ex.category = "General";
+    if (!ex.note) ex.note = "";
   });
 
   return db;
 }
 
-// Parche automático: cada loadDB migra y guarda
-const __loadDB = loadDB;
-loadDB = function () {
-  const db = __loadDB();
-  const m = migrateDB(db);
-  saveDB(m);
-  return m;
-};
+// ---------- Storage ----------
+function saveDB(db) {
+  localStorage.setItem(DB_KEY, JSON.stringify(db));
+}
 
-/* ---------------------------- Cálculos --------------------------------- */
+function loadDB() {
+  let db;
+  try {
+    const raw = localStorage.getItem(DB_KEY);
+    db = raw ? JSON.parse(raw) : defaultDB();
+  } catch (e) {
+    db = defaultDB();
+  }
+  db = migrateDB(db);
+  saveDB(db);
+  return db;
+}
+
+// ---------- Costs & Profit ----------
 function calcItemCosts(db, item) {
-  // Costo compra en Q -> USD + aduana por pieza
   const fx = num(item.fx || db.config.fx || 7.5);
   const costUSD = num(item.costQ) / fx;
 
@@ -147,45 +136,30 @@ function calcItemCosts(db, item) {
     const q = Math.max(1, Math.floor(num(lot.qty) || 1));
     customsPer = num(lot.customsTotal) / q;
   }
-
   const base = costUSD + customsPer;
-
   return { fx, costUSD, customsPer, base };
 }
 
 function calcProfit(db, item) {
-  // Utilidad bruta por prenda, pero solo válida cuando es venta real
   const costs = calcItemCosts(db, item);
 
-  // Penalización No retirado (solo si el estado es No retirado)
   let noRetPenalty = 0;
   if (item.status === "No retirado") {
     const type = (item.noRetType || "Destino fijo");
-    if (type === "Personalizado") noRetPenalty = num(db.config.noRetCustom || 3);
-    else noRetPenalty = num(db.config.noRetFixed || 1);
+    noRetPenalty = type === "Personalizado" ? num(db.config.noRetCustom || 3) : num(db.config.noRetFixed || 1);
   }
 
-  // Mariita (se asigna cuando marcan Retirado)
   const mariita = num(item.mariitaCost || 0);
-
   const revenue = num(item.salePrice || 0);
   const totalCost = costs.base + mariita + noRetPenalty;
 
-  // Solo mostrar profit cuando ya es real (Retirado/Depositado)
   const profit = isSaleReal(item.status) ? (revenue - totalCost) : 0;
 
-  return {
-    revenue,
-    mariita,
-    noRetPenalty,
-    totalCost,
-    profit
-  };
+  return { revenue, mariita, noRetPenalty, totalCost, profit };
 }
 
-/* ---------------------- Inversión / recuperación ----------------------- */
+// ---------- Investment & Recovery ----------
 function lotInvestmentUSD(db, lot) {
-  // Inversión lote = compraTotalQ (Q->USD) + aduanaTotalUSD
   const fx = num(lot.fx || db.config.fx || 7.5);
   const purchaseUSD = num(lot.purchaseTotalQ || 0) / fx;
   const customsUSD = num(lot.customsTotal || 0);
@@ -193,7 +167,6 @@ function lotInvestmentUSD(db, lot) {
 }
 
 function lotRecoveryUSD(db, lotId) {
-  // Recuperación lote = suma de ventas reales del lote
   const sold = (db.items || []).filter(it => it.lotId === lotId && isSaleReal(it.status));
   return sold.reduce((a, it) => a + num(it.salePrice), 0);
 }
@@ -211,7 +184,7 @@ function globalNetAfterInvestment(db) {
   return globalRecoveryUSD(db) - globalInvestmentUSD(db);
 }
 
-/* ------------------------- Export (opcional) --------------------------- */
+// ---------- Export ----------
 function exportJSON(filename, payload) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
@@ -221,7 +194,7 @@ function exportJSON(filename, payload) {
   URL.revokeObjectURL(a.href);
 }
 
-// Exponer algunas funciones globales si las necesitas en HTML inline
+// Expose globals for inline scripts
 window.STATUS = STATUS;
 window.uid = uid;
 window.num = num;
@@ -237,9 +210,6 @@ window.lotRecoveryUSD = lotRecoveryUSD;
 window.globalInvestmentUSD = globalInvestmentUSD;
 window.globalRecoveryUSD = globalRecoveryUSD;
 window.globalNetAfterInvestment = globalNetAfterInvestment;
+
 window.exportJSON = exportJSON;
 
-  if(t.length===0) t.push("✅ Todo se ve ordenado. Mantén lotes y gastos al día para una radiografía real.");
-
-  return t;
-}
